@@ -96,7 +96,40 @@ If you see import errors, make sure you're running from the `backend/` directory
 - Check that RLS policies are set up correctly
 - Ensure the `get_user_role` function exists
 
+
 ### Realtime Not Working
 - Ensure Realtime is enabled for the `bugs` table in Supabase
 - Check browser console for connection errors
 - Verify your Supabase project has Realtime enabled
+
+# Docker Setup
+
+## Prerequisites
+
+- [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/) installed
+
+## Build and Run with Docker Compose
+
+```bash
+# Build all services (frontend, backend, db)
+docker compose build
+
+# Start all services
+docker compose up
+```
+
+- The frontend will be available at [http://localhost:5173](http://localhost:5173)
+- The backend API will be available at [http://localhost:8000](http://localhost:8000)
+
+## Stopping Services
+
+```bash
+docker compose down
+```
+
+## Rebuilding (if you change dependencies or Dockerfiles)
+
+```bash
+docker compose build --no-cache
+docker compose up
+```
