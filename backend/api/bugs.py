@@ -134,7 +134,7 @@ async def update_bug(
             changes["description"] = bug_data.description
         if bug_data.status is not None and bug_data.status != old_status:
             log_bug_status_changed(bug_id, user["user_id"], old_status, bug_data.status, get_client_ip(request))
-            if bug_data.status == "fixed":
+            if bug_data.status == "resolved":
                 log_bug_fixed(bug_id, user["user_id"], get_client_ip(request))
         if changes:
             log_bug_updated(bug_id, user["user_id"], changes, get_client_ip(request))

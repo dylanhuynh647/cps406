@@ -2,7 +2,7 @@
 CREATE TYPE public.user_role AS ENUM ('reporter', 'developer', 'admin');
 CREATE TYPE public.artifact_type AS ENUM ('product_backlog', 'design_document', 'diagram', 'formal_spec', 'source_file', 'test_source_file', 'binary', 'data_file', 'other');
 CREATE TYPE public.bug_category AS ENUM ('logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other');
-CREATE TYPE public.bug_status AS ENUM ('open', 'in_progress', 'fixed', 'closed');
+CREATE TYPE public.bug_status AS ENUM ('open', 'in_progress', 'resolved');
 
 -- Create users table (extends auth.users)
 CREATE TABLE IF NOT EXISTS public.users (
@@ -173,9 +173,9 @@ CREATE TRIGGER update_bugs_updated_at BEFORE UPDATE ON public.bugs
 CREATE OR REPLACE FUNCTION handle_bug_status_change()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.status = 'fixed' AND (OLD.status IS NULL OR OLD.status != 'fixed') THEN
+    IF NEW.status = 'resolved' AND (OLD.status IS NULL OR OLD.status != 'resolved') THEN
         NEW.fixed_at = NOW();
-    ELSIF NEW.status != 'fixed' AND OLD.status = 'fixed' THEN
+    ELSIF NEW.status != 'resolved' AND OLD.status = 'resolved' THEN
         NEW.fixed_at = NULL;
     END IF;
     RETURN NEW;

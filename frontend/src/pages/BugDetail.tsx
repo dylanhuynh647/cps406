@@ -20,7 +20,18 @@ const bugSchema = z.object({
 type BugFormData = z.infer<typeof bugSchema>
 
 const bugTypes = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
-const bugStatuses = ['open', 'in_progress', 'fixed', 'closed']
+const bugStatuses = ['open', 'in_progress', 'resolved']
+
+const formatBugTypeLabel = (value: string) => {
+  if (value.toLowerCase() === 'ui/ux') return 'UI/UX'
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+const formatStatusLabel = (value: string) =>
+  value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 
 export default function BugDetail() {
   const { id } = useParams<{ id: string }>()
@@ -57,8 +68,16 @@ export default function BugDetail() {
       const response = await api.get('/users/developers')
       return response.data
     },
-    enabled: canEdit || false,
+    enabled: !!id,
   })
+
+  const assignedUserName = bug?.assigned_to
+    ? users?.find((user: any) => user.id === bug.assigned_to)?.full_name ||
+      users?.find((user: any) => user.id === bug.assigned_to)?.email ||
+      bug.assigned_to
+    : 'Unassigned'
+
+  const reporterName = bug?.reporter_name || bug?.reporter_id || 'Unknown'
 
   const {
     register,
@@ -86,6 +105,7 @@ export default function BugDetail() {
     mutationFn: async (data: BugFormData) => {
       return api.patch(`/bugs/${id}`, {
         ...data,
+        assigned_to: data.assigned_to || null,
         artifact_ids: data.artifact_ids?.map(id => id) || [],
       })
     },
@@ -97,6 +117,20 @@ export default function BugDetail() {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Failed to update bug')
+    },
+  })
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async (statusValue: string) => {
+      return api.patch(`/bugs/${id}`, { status: statusValue })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bug', id] })
+      queryClient.invalidateQueries({ queryKey: ['bugs'] })
+      toast.success('Bug status updated!')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to update bug status')
     },
   })
 
@@ -181,6 +215,19 @@ export default function BugDetail() {
           </div>
         )}
 
+        <div className="mb-6 rounded-md bg-gray-50 border border-gray-200 px-4 py-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Reported By</p>
+              <p className="mt-1 text-sm text-gray-900">{reporterName}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Assigned To</p>
+              <p className="mt-1 text-sm text-gray-900">{assignedUserName}</p>
+            </div>
+          </div>
+        </div>
+
         {isEditing ? (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div>
@@ -215,7 +262,7 @@ export default function BugDetail() {
               >
                 {bugTypes.map((type) => (
                   <option key={type} value={type}>
-                    {type}
+                    {formatBugTypeLabel(type)}
                   </option>
                 ))}
               </select>
@@ -229,7 +276,7 @@ export default function BugDetail() {
               >
                 {bugStatuses.map((status) => (
                   <option key={status} value={status}>
-                    {status.replace('_', ' ')}
+                    {formatStatusLabel(status)}
                   </option>
                 ))}
               </select>
@@ -300,11 +347,30 @@ export default function BugDetail() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Bug Type</label>
-              <p className="mt-1 text-sm text-gray-900">{bug.bug_type}</p>
+              <p className="mt-1 text-sm text-gray-900">{formatBugTypeLabel(bug.bug_type)}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Status</label>
-              <p className="mt-1 text-sm text-gray-900">{bug.status}</p>
+              {canEdit ? (
+                <select
+                  value={bug.status}
+                  onChange={(e) => updateStatusMutation.mutate(e.target.value)}
+                  disabled={updateStatusMutation.isPending}
+                  className="mt-1 block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:opacity-50"
+                >
+                  {bugStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatusLabel(status)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-1 text-sm text-gray-900">{formatStatusLabel(bug.status)}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Assigned To</label>
+              <p className="mt-1 text-sm text-gray-900">{assignedUserName}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Found At</label>
@@ -314,7 +380,7 @@ export default function BugDetail() {
             </div>
             {bug.fixed_at && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">Fixed At</label>
+                <label className="block text-sm font-medium text-gray-700">Resolved At</label>
                 <p className="mt-1 text-sm text-gray-900">
                   {new Date(bug.fixed_at).toLocaleString()}
                 </p>
