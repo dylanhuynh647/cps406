@@ -19,6 +19,18 @@ const bugSchema = z.object({
 type BugFormData = z.infer<typeof bugSchema>
 
 const bugTypes = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
+const bugStatuses = ['open', 'in_progress', 'resolved']
+
+const formatBugTypeLabel = (value: string) => {
+  if (value.toLowerCase() === 'ui/ux') return 'UI/UX'
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+const formatStatusLabel = (value: string) =>
+  value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 
 export default function BugNew() {
   const navigate = useNavigate()
@@ -123,7 +135,7 @@ export default function BugNew() {
               <option value="">Select a type</option>
               {bugTypes.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {formatBugTypeLabel(type)}
                 </option>
               ))}
             </select>
@@ -140,10 +152,11 @@ export default function BugNew() {
               {...register('status')}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             >
-              <option value="open">Open</option>
-              <option value="in_progress">In Progress</option>
-              <option value="fixed">Fixed</option>
-              <option value="closed">Closed</option>
+              {bugStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {formatStatusLabel(status)}
+                </option>
+              ))}
             </select>
           </div>
 

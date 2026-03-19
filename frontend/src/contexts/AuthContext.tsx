@@ -69,14 +69,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        scheduleProfileFetch()
-      }
+    const loadingTimeout = window.setTimeout(() => {
       setLoading(false)
-    })
+    }, 5000)
+
+    // Get initial session
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        setUser(session?.user ?? null)
+        if (session?.user) {
+          scheduleProfileFetch()
+        }
+      })
+      .catch((error) => {
+        console.error('Error getting initial session:', error)
+        setUser(null)
+        setProfile(null)
+      })
+      .finally(() => {
+        window.clearTimeout(loadingTimeout)
+        setLoading(false)
+      })
 
     // Listen for auth changes
     const {
@@ -96,6 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })
 
     return () => {
+      window.clearTimeout(loadingTimeout)
       if (profileFetchTimeoutRef.current) {
         window.clearTimeout(profileFetchTimeoutRef.current)
       }

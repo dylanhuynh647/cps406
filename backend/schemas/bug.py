@@ -6,7 +6,17 @@ from backend.utils.security import sanitize_text, validate_enum_value, MAX_TITLE
 
 # Allowed enum values
 BUG_TYPES = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
-BUG_STATUSES = ['open', 'in_progress', 'fixed', 'closed']
+BUG_STATUSES = ['open', 'in_progress', 'resolved']
+LEGACY_STATUS_ALIASES = {
+    'fixed': 'resolved',
+    'closed': 'resolved',
+}
+
+
+def normalize_status_value(value: str) -> str:
+    """Normalize status input to canonical API values."""
+    normalized = value.strip().lower().replace(' ', '_')
+    return LEGACY_STATUS_ALIASES.get(normalized, normalized)
 
 class BugCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=MAX_TITLE_LENGTH)
@@ -44,7 +54,8 @@ class BugCreate(BaseModel):
         """Validate status enum"""
         if v is None:
             return "open"
-        return validate_enum_value(v, BUG_STATUSES, "status")
+        normalized = normalize_status_value(v)
+        return validate_enum_value(normalized, BUG_STATUSES, "status")
     
     @field_validator('artifact_ids')
     @classmethod
@@ -98,7 +109,8 @@ class BugUpdate(BaseModel):
         """Validate status enum"""
         if v is None:
             return None
-        return validate_enum_value(v, BUG_STATUSES, "status")
+        normalized = normalize_status_value(v)
+        return validate_enum_value(normalized, BUG_STATUSES, "status")
     
     @field_validator('artifact_ids')
     @classmethod
@@ -124,6 +136,7 @@ class BugResponse(BaseModel):
     found_at: datetime
     fixed_at: Optional[datetime]
     reporter_id: UUID
+    reporter_name: Optional[str] = None
     assigned_to: Optional[UUID]
     created_at: datetime
     updated_at: datetime

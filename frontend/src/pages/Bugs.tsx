@@ -14,18 +14,35 @@ interface Bug {
   found_at: string
   fixed_at: string | null
   reporter_id: string
+  reporter_name?: string | null
   assigned_to: string | null
   created_at: string
   updated_at: string
   artifacts?: any[]
 }
 
+interface AssignableUser {
+  id: string
+  full_name?: string | null
+  email?: string | null
+}
+
 const statusColors: Record<string, string> = {
   open: 'bg-red-100 text-red-800',
   in_progress: 'bg-yellow-100 text-yellow-800',
-  fixed: 'bg-green-100 text-green-800',
-  closed: 'bg-gray-100 text-gray-800',
+  resolved: 'bg-green-100 text-green-800',
 }
+
+const formatBugTypeLabel = (value: string) => {
+  if (value.toLowerCase() === 'ui/ux') return 'UI/UX'
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+const formatStatusLabel = (value: string) =>
+  value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 
 export default function Bugs() {
   const { profile, loading } = useAuth()
@@ -75,6 +92,28 @@ export default function Bugs() {
     },
     enabled: !loading,
   })
+
+  const { data: assignees } = useQuery<AssignableUser[]>({
+    queryKey: ['users', 'developers'],
+    queryFn: async () => {
+      const response = await api.get('/users/developers')
+      return response.data
+    },
+    enabled: !loading,
+  })
+
+  const getAssignedLabel = (assignedTo: string | null) => {
+    if (!assignedTo) {
+      return 'Unassigned'
+    }
+
+    const assignee = assignees?.find((user) => user.id === assignedTo)
+    return assignee?.full_name || assignee?.email || assignedTo
+  }
+
+  const getReporterLabel = (bug: Bug) => {
+    return bug.reporter_name || bug.reporter_id
+  }
 
   // Realtime subscription
   useEffect(() => {
@@ -174,8 +213,7 @@ export default function Bugs() {
             >
               <option value="open">Open</option>
               <option value="in_progress">In Progress</option>
-              <option value="fixed">Fixed</option>
-              <option value="closed">Closed</option>
+              <option value="resolved">Resolved</option>
             </select>
           </div>
 
@@ -233,7 +271,7 @@ export default function Bugs() {
       </div>
 
       {/* Bugs Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="bg-white shadow rounded-lg overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -247,10 +285,13 @@ export default function Bugs() {
                 Type
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Assigned To
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Found At
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Fixed At
+                Resolved At
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Artifacts
@@ -265,14 +306,20 @@ export default function Bugs() {
               <tr key={bug.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900">{bug.title}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Reported by: {getReporterLabel(bug)}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColors[bug.status] || statusColors.open}`}>
-                    {bug.status.replace('_', ' ')}
+                    {formatStatusLabel(bug.status)}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {bug.bug_type}
+                  {formatBugTypeLabel(bug.bug_type)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {getAssignedLabel(bug.assigned_to)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {new Date(bug.found_at).toLocaleDateString()}
