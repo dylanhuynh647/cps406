@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import logoIcon from '../assets/NavBar/logo-icon.svg'
 
 export const Navbar = () => {
   const { user, profile, signOut } = useAuth()
@@ -15,8 +16,9 @@ export const Navbar = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <Link to="/" className="text-xl font-bold text-indigo-600">
-              Bug Tracker
+            <Link to="/" className="flex items-center" aria-label="DeBUG home">
+              <img src={logoIcon} alt="DeBUG logo" className="h-16 w-16" />
+              <span className="ml-2 text-3xl leading-none font-bold text-[#3D6BBA]" style={{ fontFamily: 'Lalezar' }}>DeBUG</span>
             </Link>
             {user && (
               <div className="ml-10 flex space-x-4">
