@@ -21,6 +21,7 @@ interface Bug {
   updated_at: string
   artifact_count?: number
   artifact_ids?: string[]
+  artifacts?: Artifact[]
 }
 
 interface Artifact {
@@ -131,7 +132,55 @@ export default function Bugs() {
       }
 
       const response = await api.get('/bugs', { params })
-      return (response.data || []) as Bug[]
+      const bugsList = ((response.data || []) as Bug[]).map((bug) => ({
+        ...bug,
+        artifact_ids: Array.isArray(bug.artifact_ids) ? bug.artifact_ids : [],
+        artifact_count: typeof bug.artifact_count === 'number' ? bug.artifact_count : undefined,
+      }))
+
+      const needsDetailEnrichment = bugsList.some(
+        (bug) => typeof bug.artifact_count !== 'number' || !Array.isArray(bug.artifact_ids)
+      )
+
+      if (!needsDetailEnrichment) {
+        return bugsList
+      }
+
+      const enriched = await Promise.all(
+        bugsList.map(async (bug) => {
+          try {
+            const detailResponse = await api.get(`/bugs/${bug.id}`)
+            const detailBug = detailResponse.data
+            const detailArtifactIds: string[] = Array.isArray(detailBug?.artifact_ids)
+              ? detailBug.artifact_ids
+              : Array.isArray(detailBug?.artifacts)
+                ? detailBug.artifacts
+                    .map((artifact: any) => artifact?.id)
+                    .filter((id: string | undefined) => !!id)
+                : bug.artifact_ids || []
+
+            const detailArtifactCount =
+              typeof detailBug?.artifact_count === 'number'
+                ? detailBug.artifact_count
+                : detailArtifactIds.length
+
+            return {
+              ...bug,
+              artifact_ids: detailArtifactIds,
+              artifact_count: detailArtifactCount,
+              artifacts: Array.isArray(detailBug?.artifacts) ? detailBug.artifacts : bug.artifacts,
+            }
+          } catch {
+            return {
+              ...bug,
+              artifact_ids: bug.artifact_ids || [],
+              artifact_count: bug.artifact_count ?? (bug.artifact_ids || []).length,
+            }
+          }
+        })
+      )
+
+      return enriched
     },
     enabled: !loading,
   })
@@ -139,8 +188,8 @@ export default function Bugs() {
   const { data: artifacts } = useQuery<Artifact[]>({
     queryKey: ['artifacts'],
     queryFn: async () => {
-      const response = await api.get('/artifacts', { params: { skip: 0, limit: 500 } })
-      return response.data
+      const response = await api.get('/artifacts', { params: { skip: 0, limit: 100 } })
+      return Array.isArray(response.data) ? response.data : []
     },
     enabled: !loading,
   })
@@ -248,10 +297,15 @@ export default function Bugs() {
 
     if (!isIgnored('query') && filters.query.trim()) {
       const searchValue = filters.query.trim().toLowerCase()
-      const artifactNames = (bug.artifact_ids || [])
+      const artifactNamesFromMap = (bug.artifact_ids || [])
         .map((artifactId) => artifactsById.get(artifactId)?.name)
         .filter(Boolean)
         .map((name) => name!.toLowerCase())
+      const artifactNamesFromDetail = (bug.artifacts || [])
+        .map((artifact) => artifact.name)
+        .filter(Boolean)
+        .map((name) => name.toLowerCase())
+      const artifactNames = [...artifactNamesFromMap, ...artifactNamesFromDetail]
       const searchableFields = [
         bug.title,
         bug.description,
@@ -380,7 +434,10 @@ export default function Bugs() {
         getFacetBugs('artifact_ids').flatMap((bug) =>
           (bug.artifact_ids || []).map((artifactId) => ({
             value: artifactId,
-            label: artifactsById.get(artifactId)?.name || artifactId,
+            label:
+              artifactsById.get(artifactId)?.name ||
+              bug.artifacts?.find((artifact) => artifact.id === artifactId)?.name ||
+              artifactId,
           }))
         )
       ).sort((a, b) => a.label.localeCompare(b.label)),
