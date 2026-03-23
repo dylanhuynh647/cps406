@@ -225,7 +225,7 @@ export default function BugNew() {
             <button
               type="button"
               onClick={() => navigate('/bugs')}
-              className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md text-sm font-medium"
+              className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
             >
               Cancel
             </button>

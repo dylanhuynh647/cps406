@@ -38,6 +38,13 @@ interface AssignableUser {
   avatar_url?: string | null
 }
 
+interface UserProfileLite {
+  id: string
+  full_name?: string | null
+  email?: string | null
+  avatar_url?: string | null
+}
+
 const statusColors: Record<string, string> = {
   open: 'bg-red-100 text-red-800',
   in_progress: 'bg-yellow-100 text-yellow-800',
@@ -103,10 +110,11 @@ const uniqueByValue = (options: FilterOption[]) => {
 }
 
 export default function Bugs() {
-  const { profile, loading } = useAuth()
+  const { user, profile, loading } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
+  const [failedReporterAvatarUrls, setFailedReporterAvatarUrls] = useState<Set<string>>(new Set())
 
   // Local filter state from URL params.
   const [filters, setFilters] = useState<FilterState>({
@@ -141,7 +149,10 @@ export default function Bugs() {
       }))
 
       const needsDetailEnrichment = bugsList.some(
-        (bug) => typeof bug.artifact_count !== 'number' || !Array.isArray(bug.artifact_ids)
+        (bug) =>
+          typeof bug.artifact_count !== 'number' ||
+          !Array.isArray(bug.artifact_ids) ||
+          (!bug.reporter_avatar_url && !!bug.reporter_id)
       )
 
       if (!needsDetailEnrichment) {
@@ -168,6 +179,8 @@ export default function Bugs() {
 
             return {
               ...bug,
+              reporter_name: detailBug?.reporter_name ?? bug.reporter_name,
+              reporter_avatar_url: detailBug?.reporter_avatar_url ?? bug.reporter_avatar_url,
               artifact_ids: detailArtifactIds,
               artifact_count: detailArtifactCount,
               artifacts: Array.isArray(detailBug?.artifacts) ? detailBug.artifacts : bug.artifacts,
@@ -205,6 +218,15 @@ export default function Bugs() {
     enabled: !loading,
   })
 
+  const { data: userProfiles } = useQuery<UserProfileLite[]>({
+    queryKey: ['users', 'profiles', user?.id],
+    queryFn: async () => {
+      const response = await api.get('/users/profiles')
+      return Array.isArray(response.data) ? response.data : []
+    },
+    enabled: !loading && !!user?.id,
+  })
+
   const getAssignedLabel = (assignedTo: string | null) => {
     if (!assignedTo) {
       return 'Unassigned'
@@ -224,16 +246,32 @@ export default function Bugs() {
   }
 
   const getReporterLabel = (bug: Bug) => {
-    return bug.reporter_name || bug.reporter_id
+    const reporter = userProfiles?.find((user) => user.id === bug.reporter_id)
+    const assigneeMatch = assignees?.find((user) => user.id === bug.reporter_id)
+    return (
+      bug.reporter_name ||
+      reporter?.full_name ||
+      reporter?.email ||
+      assigneeMatch?.full_name ||
+      assigneeMatch?.email ||
+      bug.reporter_id
+    )
   }
 
   const getReporterAvatar = (bug: Bug) => {
-    if (bug.reporter_avatar_url) {
-      return bug.reporter_avatar_url
-    }
+    const reporter = userProfiles?.find((user) => user.id === bug.reporter_id)
+    const assigneeMatch = assignees?.find((user) => user.id === bug.reporter_id)
 
-    if (profile?.id && bug.reporter_id === profile.id) {
-      return profile.avatar_url || null
+    const candidateUrls = [
+      bug.reporter_avatar_url?.trim() || null,
+      reporter?.avatar_url?.trim() || null,
+      assigneeMatch?.avatar_url?.trim() || null,
+      user?.id && bug.reporter_id === user.id ? profile?.avatar_url?.trim() || null : null,
+    ].filter((value): value is string => !!value)
+
+    const firstUsable = candidateUrls.find((url) => !failedReporterAvatarUrls.has(url))
+    if (firstUsable) {
+      return firstUsable
     }
 
     return null
@@ -448,7 +486,7 @@ export default function Bugs() {
           label: getReporterLabel(bug),
         }))
       ).sort((a, b) => a.label.localeCompare(b.label)),
-    [bugs, filters, assignees]
+    [bugs, filters, assignees, userProfiles]
   )
 
   const artifactOptions = useMemo(
@@ -695,22 +733,45 @@ export default function Bugs() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {paginatedBugs.map((bug) => (
+            {paginatedBugs.map((bug) => {
+              const reporterLabel = getReporterLabel(bug)
+              const reporterAvatar = getReporterAvatar(bug)
+
+              return (
               <tr key={bug.id} className="hover:bg-gray-50">
                 <td className="px-4 py-4">
                   <div className="max-w-[8rem] truncate text-sm font-medium text-gray-900" title={bug.title}>{bug.title}</div>
                   <div className="mt-1 flex items-center gap-2">
                     <div className="h-5 w-5 overflow-hidden rounded-full border border-gray-200 bg-gray-100">
-                      {getReporterAvatar(bug) ? (
-                        <img src={getReporterAvatar(bug) || ''} alt={getReporterLabel(bug)} className="h-full w-full object-cover" />
+                      {reporterAvatar ? (
+                        <img
+                          src={reporterAvatar}
+                          alt={reporterLabel}
+                          onError={(event) => {
+                            const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src
+                            if (!failedUrl) {
+                              return
+                            }
+
+                            setFailedReporterAvatarUrls((previous) => {
+                              if (previous.has(failedUrl)) {
+                                return previous
+                              }
+                              const next = new Set(previous)
+                              next.add(failedUrl)
+                              return next
+                            })
+                          }}
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-gray-500">
-                          {getReporterLabel(bug).charAt(0).toUpperCase()}
+                          {reporterLabel.charAt(0).toUpperCase()}
                         </div>
                       )}
                     </div>
-                    <span className="max-w-[6rem] truncate text-xs text-gray-500" title={getReporterLabel(bug)}>
-                      {getReporterLabel(bug)}
+                    <span className="max-w-[6rem] truncate text-xs text-gray-500" title={reporterLabel}>
+                      {reporterLabel}
                     </span>
                   </div>
                 </td>
@@ -763,7 +824,7 @@ export default function Bugs() {
                   </button>
                 </td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
         {filteredBugs.length === 0 && (

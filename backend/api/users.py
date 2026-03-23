@@ -112,6 +112,12 @@ async def list_developers_and_admins(current_user: dict = Depends(get_current_us
     result = supabase.table("users").select("*").in_("role", ["developer", "admin"]).execute()
     return result.data
 
+@router.get("/users/profiles")
+async def list_user_profiles(current_user: dict = Depends(get_current_user)):
+    """List lightweight user profiles for avatar/name rendering."""
+    result = supabase.table("users").select("id, full_name, email, avatar_url").execute()
+    return result.data
+
 @router.get("/admin-only")
 async def admin_only_endpoint(user: dict = Depends(role_required(["admin"]))):
     """Admin-only endpoint example"""

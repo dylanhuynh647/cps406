@@ -153,6 +153,7 @@ export default function Profile() {
       queryClient.invalidateQueries({ queryKey: ['bugs'] })
       queryClient.invalidateQueries({ queryKey: ['bug'] })
       queryClient.invalidateQueries({ queryKey: ['users', 'developers'] })
+      queryClient.invalidateQueries({ queryKey: ['users', 'profiles'] })
       toast.success('Profile updated successfully!')
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Failed to update profile')

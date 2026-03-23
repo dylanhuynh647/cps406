@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import toast from 'react-hot-toast'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 const bugSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -23,6 +23,13 @@ type BugFormData = z.infer<typeof bugSchema>
 const bugTypes = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
 const bugStatuses = ['open', 'in_progress', 'resolved']
 const bugSeverities = ['low', 'medium', 'high', 'critical']
+
+interface UserProfileLite {
+  id: string
+  full_name?: string | null
+  email?: string | null
+  avatar_url?: string | null
+}
 
 const formatBugTypeLabel = (value: string) => {
   if (value.toLowerCase() === 'ui/ux') return 'UI/UX'
@@ -45,6 +52,7 @@ export default function BugDetail() {
   const queryClient = useQueryClient()
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [failedReporterAvatarUrls, setFailedReporterAvatarUrls] = useState<Set<string>>(new Set())
 
   const { data: bug, isLoading } = useQuery({
     queryKey: ['bug', id],
@@ -77,6 +85,15 @@ export default function BugDetail() {
     enabled: !!id,
   })
 
+  const { data: userProfiles } = useQuery<UserProfileLite[]>({
+    queryKey: ['users', 'profiles', id],
+    queryFn: async () => {
+      const response = await api.get('/users/profiles')
+      return Array.isArray(response.data) ? response.data : []
+    },
+    enabled: !!id,
+  })
+
   const assignedUserName = bug?.assigned_to
     ? users?.find((user: any) => user.id === bug.assigned_to)?.full_name ||
       users?.find((user: any) => user.id === bug.assigned_to)?.email ||
@@ -86,8 +103,33 @@ export default function BugDetail() {
     ? users?.find((user: any) => user.id === bug.assigned_to)?.avatar_url || null
     : null
 
-  const reporterName = bug?.reporter_name || bug?.reporter_id || 'Unknown'
-  const reporterAvatar = bug?.reporter_avatar_url || null
+  const reporterProfile = bug?.reporter_id
+    ? userProfiles?.find((user) => user.id === bug.reporter_id)
+    : null
+  const reporterFromDeveloperList = bug?.reporter_id
+    ? users?.find((user: any) => user.id === bug.reporter_id)
+    : null
+  const reporterName =
+    bug?.reporter_name ||
+    reporterProfile?.full_name ||
+    reporterProfile?.email ||
+    reporterFromDeveloperList?.full_name ||
+    reporterFromDeveloperList?.email ||
+    (bug?.reporter_id && bug.reporter_id === profile?.id ? profile?.full_name || profile?.email : null) ||
+    bug?.reporter_id ||
+    'Unknown'
+  const reporterAvatarCandidates = [
+    bug?.reporter_avatar_url?.trim() || null,
+    reporterProfile?.avatar_url?.trim() || null,
+    reporterFromDeveloperList?.avatar_url?.trim() || null,
+    bug?.reporter_id && bug.reporter_id === profile?.id ? profile?.avatar_url?.trim() || null : null,
+  ].filter((value): value is string => !!value)
+  const reporterAvatar =
+    reporterAvatarCandidates.find((url) => !failedReporterAvatarUrls.has(url)) || null
+
+  useEffect(() => {
+    setFailedReporterAvatarUrls(new Set())
+  }, [bug?.id, bug?.reporter_id, bug?.reporter_avatar_url])
 
   const {
     register,
@@ -232,7 +274,7 @@ export default function BugDetail() {
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
               >
                 Cancel
               </button>
@@ -247,7 +289,26 @@ export default function BugDetail() {
               <div className="mt-1 flex items-center gap-2">
                 <div className="h-7 w-7 overflow-hidden rounded-full border border-gray-200 bg-gray-100">
                   {reporterAvatar ? (
-                    <img src={reporterAvatar} alt={reporterName} className="h-full w-full object-cover" />
+                    <img
+                      src={reporterAvatar}
+                      alt={reporterName}
+                      onError={(event) => {
+                        const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src
+                        if (!failedUrl) {
+                          return
+                        }
+
+                        setFailedReporterAvatarUrls((previous) => {
+                          if (previous.has(failedUrl)) {
+                            return previous
+                          }
+                          const next = new Set(previous)
+                          next.add(failedUrl)
+                          return next
+                        })
+                      }}
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-gray-500">
                       {reporterName.charAt(0).toUpperCase()}
@@ -383,7 +444,7 @@ export default function BugDetail() {
                   setIsEditing(false)
                   reset()
                 }}
-                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
               >
                 Cancel
               </button>
