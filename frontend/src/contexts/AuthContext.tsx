@@ -12,22 +12,41 @@ interface UserProfile {
   dark_mode?: boolean | null
 }
 
+interface ProjectMembership {
+  id: string
+  name: string
+  description: string | null
+  cover_image_url?: string | null
+  owner_id: string
+  my_role: 'owner' | 'admin' | 'developer' | 'reporter'
+  created_at: string
+  updated_at: string
+}
+
 interface AuthContextType {
   user: User | null
   profile: UserProfile | null
+  projects: ProjectMembership[]
+  currentProject: ProjectMembership | null
+  currentProjectId: string | null
   loading: boolean
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+  refreshProjects: () => Promise<void>
+  setCurrentProjectId: (projectId: string | null) => void
   setDarkModePreference: (enabled: boolean) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const getThemeStorageKey = (userId: string) => `user-theme:${userId}`
+const getProjectStorageKey = (userId: string) => `current-project:${userId}`
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [projects, setProjects] = useState<ProjectMembership[]>([])
+  const [currentProjectId, setCurrentProjectIdState] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const profileFetchInFlightRef = useRef(false)
   const profileFetchPendingRef = useRef(false)
@@ -86,6 +105,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  const resolveSelectedProjectId = (userId: string, nextProjects: ProjectMembership[]) => {
+    const stored = window.localStorage.getItem(getProjectStorageKey(userId))
+    if (stored && nextProjects.some((project) => project.id === stored)) {
+      return stored
+    }
+    return nextProjects[0]?.id ?? null
+  }
+
+  const fetchProjects = async (requestedUserId?: string) => {
+    const activeUserId = requestedUserId || user?.id
+    if (!activeUserId) {
+      setProjects([])
+      setCurrentProjectIdState(null)
+      return
+    }
+
+    try {
+      const response = await api.get('/projects')
+      const nextProjects = Array.isArray(response.data) ? (response.data as ProjectMembership[]) : []
+      setProjects(nextProjects)
+
+      const nextCurrentProjectId = resolveSelectedProjectId(activeUserId, nextProjects)
+      setCurrentProjectIdState(nextCurrentProjectId)
+      if (nextCurrentProjectId) {
+        window.localStorage.setItem(getProjectStorageKey(activeUserId), nextCurrentProjectId)
+      } else {
+        window.localStorage.removeItem(getProjectStorageKey(activeUserId))
+      }
+    } catch (error) {
+      console.error('Error fetching projects:', error)
+      setProjects([])
+      setCurrentProjectIdState(null)
+    }
+  }
+
   const scheduleProfileFetch = () => {
     if (profileFetchTimeoutRef.current) {
       window.clearTimeout(profileFetchTimeoutRef.current)
@@ -100,6 +154,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshProfile = async () => {
     if (user) {
       await fetchProfile()
+    }
+  }
+
+  const refreshProjects = async () => {
+    if (user) {
+      await fetchProjects(user.id)
+    }
+  }
+
+  const setCurrentProjectId = (projectId: string | null) => {
+    setCurrentProjectIdState(projectId)
+    if (!user) {
+      return
+    }
+
+    if (projectId) {
+      window.localStorage.setItem(getProjectStorageKey(user.id), projectId)
+    } else {
+      window.localStorage.removeItem(getProjectStorageKey(user.id))
     }
   }
 
@@ -156,6 +229,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(session?.user ?? null)
         if (session?.user) {
           scheduleProfileFetch()
+          void fetchProjects(session.user.id)
         }
       })
       .catch((error) => {
@@ -175,12 +249,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(session?.user ?? null)
       if (session?.user) {
         scheduleProfileFetch()
+        void fetchProjects(session.user.id)
       } else {
         if (profileFetchTimeoutRef.current) {
           window.clearTimeout(profileFetchTimeoutRef.current)
           profileFetchTimeoutRef.current = null
         }
         setProfile(null)
+        setProjects([])
+        setCurrentProjectIdState(null)
       }
       setLoading(false)
     })
@@ -202,11 +279,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut()
     setUser(null)
     setProfile(null)
+    setProjects([])
+    setCurrentProjectIdState(null)
     document.documentElement.classList.remove('dark')
   }
 
+  const currentProject = projects.find((project) => project.id === currentProjectId) || null
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile, setDarkModePreference }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        projects,
+        currentProject,
+        currentProjectId,
+        loading,
+        signOut,
+        refreshProfile,
+        refreshProjects,
+        setCurrentProjectId,
+        setDarkModePreference,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

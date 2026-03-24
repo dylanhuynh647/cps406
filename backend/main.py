@@ -75,10 +75,11 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # Import routers
-from backend.api import auth, users, artifacts, bugs
+from backend.api import auth, users, artifacts, bugs, projects
 
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(users.router, prefix="/api", tags=["users"])
+app.include_router(projects.router, prefix="/api", tags=["projects"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(bugs.router, prefix="/api", tags=["bugs"])
 

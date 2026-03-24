@@ -20,6 +20,7 @@ def normalize_status_value(value: str) -> str:
     return LEGACY_STATUS_ALIASES.get(normalized, normalized)
 
 class BugCreate(BaseModel):
+    project_id: UUID
     title: str = Field(..., min_length=1, max_length=MAX_TITLE_LENGTH)
     description: str = Field(..., min_length=1, max_length=MAX_DESCRIPTION_LENGTH)
     bug_type: str = Field(..., min_length=1)
@@ -148,6 +149,7 @@ class BugArtifactResponse(BaseModel):
 
 class BugResponse(BaseModel):
     id: UUID
+    project_id: UUID
     title: str
     description: str
     bug_type: str

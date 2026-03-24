@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { useState } from 'react'
 
@@ -32,18 +33,19 @@ const artifactTypes = [
 export default function ArtifactDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { profile, user } = useAuth()
+  const { currentProject, currentProjectId } = useAuth()
   const queryClient = useQueryClient()
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [replacementFile, setReplacementFile] = useState<File | null>(null)
 
   const { data: artifact, isLoading } = useQuery({
-    queryKey: ['artifact', id],
+    queryKey: ['artifact', id, currentProjectId],
     queryFn: async () => {
-      const response = await api.get(`/artifacts/${id}`)
+      const response = await api.get(`/artifacts/${id}`, { params: { project_id: currentProjectId } })
       return response.data
     },
-    enabled: !!id && !isEditing,
+    enabled: !!id && !!currentProjectId && !isEditing,
   })
 
   const {
@@ -64,13 +66,24 @@ export default function ArtifactDetail() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: async (data: ArtifactFormData) => {
-      return api.patch(`/artifacts/${id}`, data)
+    mutationFn: async ({ data, file }: { data: ArtifactFormData; file: File | null }) => {
+      const updateResponse = await api.patch(`/artifacts/${id}`, data, { params: { project_id: currentProjectId } })
+      if (!file || !currentProjectId) {
+        return updateResponse
+      }
+
+      const formData = new FormData()
+      formData.append('project_id', currentProjectId)
+      formData.append('file', file)
+      return api.post(`/artifacts/${id}/file`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['artifact', id] })
-      queryClient.invalidateQueries({ queryKey: ['artifacts'] })
+      queryClient.invalidateQueries({ queryKey: ['artifact', id, currentProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['artifacts', currentProjectId] })
       setIsEditing(false)
+      setReplacementFile(null)
       toast.success('Artifact updated successfully!')
     },
     onError: (error: any) => {
@@ -80,10 +93,10 @@ export default function ArtifactDetail() {
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      return api.delete(`/artifacts/${id}`)
+      return api.delete(`/artifacts/${id}`, { params: { project_id: currentProjectId } })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['artifacts'] })
+      queryClient.invalidateQueries({ queryKey: ['artifacts', currentProjectId] })
       toast.success('Artifact deleted successfully!')
       navigate('/artifacts')
     },
@@ -93,8 +106,75 @@ export default function ArtifactDetail() {
     },
   })
 
-  const canEdit = profile?.role === 'admin' || artifact?.created_by === user?.id
-  const canDelete = profile?.role === 'admin'
+  const canEdit = !!currentProject?.my_role && ['owner', 'admin', 'developer'].includes(currentProject.my_role)
+  const canDelete = !!currentProject?.my_role && ['owner', 'admin'].includes(currentProject.my_role)
+
+  const downloadUploadedArtifact = async () => {
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token || !currentProjectId || !artifact?.id) {
+        toast.error('You are not authenticated')
+        return
+      }
+
+      const response = await fetch(`${api.defaults.baseURL}/artifacts/${artifact.id}/download?project_id=${currentProjectId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      if (!response.ok) {
+        throw new Error('Download failed')
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = artifact.file_name || 'artifact-file'
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to download file')
+    }
+  }
+
+  const previewUploadedArtifact = async () => {
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token || !currentProjectId || !artifact?.id) {
+        toast.error('You are not authenticated')
+        return
+      }
+
+      const response = await fetch(`${api.defaults.baseURL}/artifacts/${artifact.id}/preview?project_id=${currentProjectId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      if (!response.ok) {
+        throw new Error('Preview failed')
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch {
+      toast.error('Preview is not available for this file type')
+    }
+  }
+
+  if (!currentProjectId) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="text-center text-gray-700">Select a project from the dashboard to view artifact details.</div>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -113,7 +193,7 @@ export default function ArtifactDetail() {
   }
 
   const onSubmit = (data: ArtifactFormData) => {
-    updateMutation.mutate(data)
+    updateMutation.mutate({ data, file: replacementFile })
   }
 
   return (
@@ -213,11 +293,24 @@ export default function ArtifactDetail() {
               )}
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Replace uploaded file (optional)</label>
+              <input
+                type="file"
+                onChange={(event) => setReplacementFile(event.target.files?.[0] || null)}
+                className="mt-1 block w-full text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Select a file to replace the current uploaded artifact file.
+              </p>
+            </div>
+
             <div className="flex justify-end space-x-2">
               <button
                 type="button"
                 onClick={() => {
                   setIsEditing(false)
+                  setReplacementFile(null)
                   reset()
                 }}
                 className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
@@ -251,14 +344,33 @@ export default function ArtifactDetail() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Reference</label>
-              <a
-                href={artifact.reference}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 text-sm text-indigo-600 hover:text-indigo-800"
-              >
-                {artifact.reference}
-              </a>
+              {artifact.is_uploaded_file ? (
+                <div className="mt-1 flex gap-3 text-sm">
+                  <button
+                    type="button"
+                    onClick={downloadUploadedArtifact}
+                    className="text-indigo-600 hover:text-indigo-800"
+                  >
+                    Download {artifact.file_name || 'file'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={previewUploadedArtifact}
+                    className="text-indigo-600 hover:text-indigo-800"
+                  >
+                    Preview
+                  </button>
+                </div>
+              ) : (
+                <a
+                  href={artifact.reference}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 text-sm text-indigo-600 hover:text-indigo-800"
+                >
+                  {artifact.reference}
+                </a>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Created At</label>

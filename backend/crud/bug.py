@@ -42,6 +42,7 @@ def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID):
     status_value = bug_data.status or "open"
 
     create_payload = {
+        "project_id": str(bug_data.project_id),
         "title": bug_data.title,
         "description": bug_data.description,
         "bug_type": bug_data.bug_type,
@@ -79,9 +80,12 @@ def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID):
     bug["status"] = _normalize_status_for_response(bug.get("status"))
     return bug
 
-def get_bug(db: Client, bug_id: UUID):
+def get_bug(db: Client, bug_id: UUID, project_id: Optional[UUID] = None):
     """Get a single bug with associated artifacts"""
-    bug_result = db.table("bugs").select("*").eq("id", str(bug_id)).single().execute()
+    query = db.table("bugs").select("*").eq("id", str(bug_id))
+    if project_id:
+        query = query.eq("project_id", str(project_id))
+    bug_result = query.single().execute()
     
     if not bug_result.data:
         return None
@@ -104,6 +108,7 @@ def get_bug(db: Client, bug_id: UUID):
 
 def get_bugs(
     db: Client,
+    project_id: UUID,
     skip: int = 0,
     limit: int = 100,
     status: Optional[List[str]] = None,
@@ -115,7 +120,7 @@ def get_bugs(
     found_at_to: Optional[datetime] = None
 ):
     """Get bugs with filtering"""
-    query = db.table("bugs").select("*")
+    query = db.table("bugs").select("*").eq("project_id", str(project_id))
     
     if status:
         query = query.in_("status", status)

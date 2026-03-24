@@ -48,50 +48,56 @@ const formatSeverityLabel = (value: string) =>
 export default function BugDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { profile } = useAuth()
+  const { user, currentProject, currentProjectId } = useAuth()
   const queryClient = useQueryClient()
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [failedReporterAvatarUrls, setFailedReporterAvatarUrls] = useState<Set<string>>(new Set())
 
   const { data: bug, isLoading } = useQuery({
-    queryKey: ['bug', id],
+    queryKey: ['bug', id, currentProjectId],
     queryFn: async () => {
-      const response = await api.get(`/bugs/${id}`)
+      const response = await api.get(`/bugs/${id}`, { params: { project_id: currentProjectId } })
       return response.data
     },
-    enabled: !!id && !isEditing,
+    enabled: !!id && !!currentProjectId && !isEditing,
   })
 
   const { data: artifacts } = useQuery({
-    queryKey: ['artifacts'],
+    queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/artifacts')
+      const response = await api.get('/artifacts', { params: { project_id: currentProjectId } })
       return response.data
     },
+    enabled: !!currentProjectId,
   })
 
 
-  const canEdit = profile?.role && ['developer', 'admin'].includes(profile.role)
-  const canDelete = profile?.role === 'admin'
-  const canUpdateSeverity = !!profile?.role
+  const canEdit =
+    !!currentProject?.my_role &&
+    (
+      ['owner', 'admin', 'developer'].includes(currentProject.my_role) ||
+      (currentProject.my_role === 'reporter' && bug?.reporter_id === user?.id)
+    )
+  const canDelete = currentProject?.my_role && ['owner', 'admin'].includes(currentProject.my_role)
+  const canUpdateSeverity = !!currentProject?.my_role
 
   const { data: users } = useQuery({
-    queryKey: ['users', 'developers'],
+    queryKey: ['users', 'developers', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/users/developers')
+      const response = await api.get('/users/developers', { params: { project_id: currentProjectId } })
       return response.data
     },
-    enabled: !!id,
+    enabled: !!id && !!currentProjectId,
   })
 
   const { data: userProfiles } = useQuery<UserProfileLite[]>({
-    queryKey: ['users', 'profiles', id],
+    queryKey: ['users', 'profiles', id, currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/users/profiles')
+      const response = await api.get('/users/profiles', { params: { project_id: currentProjectId } })
       return Array.isArray(response.data) ? response.data : []
     },
-    enabled: !!id,
+    enabled: !!id && !!currentProjectId,
   })
 
   const assignedUserName = bug?.assigned_to
@@ -115,14 +121,12 @@ export default function BugDetail() {
     reporterProfile?.email ||
     reporterFromDeveloperList?.full_name ||
     reporterFromDeveloperList?.email ||
-    (bug?.reporter_id && bug.reporter_id === profile?.id ? profile?.full_name || profile?.email : null) ||
     bug?.reporter_id ||
     'Unknown'
   const reporterAvatarCandidates = [
     bug?.reporter_avatar_url?.trim() || null,
     reporterProfile?.avatar_url?.trim() || null,
     reporterFromDeveloperList?.avatar_url?.trim() || null,
-    bug?.reporter_id && bug.reporter_id === profile?.id ? profile?.avatar_url?.trim() || null : null,
   ].filter((value): value is string => !!value)
   const reporterAvatar =
     reporterAvatarCandidates.find((url) => !failedReporterAvatarUrls.has(url)) || null
@@ -160,13 +164,19 @@ export default function BugDetail() {
         ...data,
         assigned_to: data.assigned_to || null,
         artifact_ids: data.artifact_ids?.map(id => id) || [],
+      }, {
+        params: { project_id: currentProjectId },
       })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bug', id] })
-      queryClient.invalidateQueries({ queryKey: ['bugs'] })
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['bug', id, currentProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       setIsEditing(false)
-      toast.success('Bug updated successfully!')
+      if (variables.assigned_to) {
+        toast.success('Bug updated and assignment invite sent!')
+      } else {
+        toast.success('Bug updated successfully!')
+      }
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Failed to update bug')
@@ -175,11 +185,11 @@ export default function BugDetail() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async (statusValue: string) => {
-      return api.patch(`/bugs/${id}`, { status: statusValue })
+      return api.patch(`/bugs/${id}`, { status: statusValue }, { params: { project_id: currentProjectId } })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bug', id] })
-      queryClient.invalidateQueries({ queryKey: ['bugs'] })
+      queryClient.invalidateQueries({ queryKey: ['bug', id, currentProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       toast.success('Bug status updated!')
     },
     onError: (error: any) => {
@@ -189,11 +199,11 @@ export default function BugDetail() {
 
   const updateSeverityMutation = useMutation({
     mutationFn: async (severityValue: string) => {
-      return api.patch(`/bugs/${id}/severity`, { severity: severityValue })
+      return api.patch(`/bugs/${id}/severity`, { severity: severityValue }, { params: { project_id: currentProjectId } })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bug', id] })
-      queryClient.invalidateQueries({ queryKey: ['bugs'] })
+      queryClient.invalidateQueries({ queryKey: ['bug', id, currentProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       toast.success('Bug severity updated!')
     },
     onError: (error: any) => {
@@ -203,10 +213,10 @@ export default function BugDetail() {
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      return api.delete(`/bugs/${id}`)
+      return api.delete(`/bugs/${id}`, { params: { project_id: currentProjectId } })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bugs'] })
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       toast.success('Bug deleted successfully!')
       navigate('/bugs')
     },
@@ -221,6 +231,14 @@ export default function BugDetail() {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center">Loading bug...</div>
+      </div>
+    )
+  }
+
+  if (!currentProjectId) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="text-center text-gray-700">Select a project from the dashboard to view bug details.</div>
       </div>
     )
   }

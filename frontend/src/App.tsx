@@ -13,6 +13,7 @@ import ArtifactNew from './pages/ArtifactNew'
 import Bugs from './pages/Bugs'
 import BugDetail from './pages/BugDetail'
 import BugNew from './pages/BugNew'
+import Inbox from './pages/Inbox'
 import { isSupabaseConfigured } from './lib/supabase'
 
 const queryClient = new QueryClient({
@@ -114,6 +115,14 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <BugDetail />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/inbox"
+                  element={
+                    <ProtectedRoute>
+                      <Inbox />
                     </ProtectedRoute>
                   }
                 />

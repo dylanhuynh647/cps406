@@ -14,9 +14,17 @@ const loginSchema = z.object({
 
 const signupSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string().min(8, 'Password must be at least 8 characters'),
   fullName: z.string().optional(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ['confirmPassword'],
+})
+
+const resetSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string().min(8, 'Password must be at least 8 characters'),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ['confirmPassword'],
@@ -24,20 +32,48 @@ const signupSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>
 type SignupFormData = z.infer<typeof signupSchema>
+type ResetFormData = z.infer<typeof resetSchema>
 
 export default function Auth() {
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode') || 'login'
+  const isResetMode = mode === 'reset'
   const [isLogin, setIsLogin] = useState(mode === 'login')
   const [loading, setLoading] = useState(false)
+  const [hasRecoverySession, setHasRecoverySession] = useState(false)
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [resetEmail, setResetEmail] = useState('')
   const navigate = useNavigate()
   const { user } = useAuth()
 
   useEffect(() => {
-    if (user) {
+    if (user && !isResetMode) {
       navigate('/dashboard')
     }
-  }, [user, navigate])
+  }, [user, navigate, isResetMode])
+
+  useEffect(() => {
+    let mounted = true
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return
+      setHasRecoverySession(!!data.session && isResetMode)
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return
+      if (event === 'PASSWORD_RECOVERY') {
+        setHasRecoverySession(!!session)
+      }
+    })
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [isResetMode])
 
   const {
     register: registerLogin,
@@ -53,6 +89,14 @@ export default function Auth() {
     formState: { errors: errorsSignup },
   } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
+  })
+
+  const {
+    register: registerReset,
+    handleSubmit: handleSubmitReset,
+    formState: { errors: errorsReset },
+  } = useForm<ResetFormData>({
+    resolver: zodResolver(resetSchema),
   })
 
   const onLogin = async (data: LoginFormData) => {
@@ -98,20 +142,43 @@ export default function Auth() {
     }
   }
 
-  const handlePasswordReset = async () => {
-    const email = prompt('Enter your email address:')
-    if (!email) return
-
+  const handlePasswordReset = async (email: string) => {
+    if (!email.trim()) {
+      toast.error('Email is required')
+      return
+    }
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: `${window.location.origin}/auth?mode=reset`,
       })
 
       if (error) throw error
 
       toast.success('Password reset email sent! Check your inbox.')
+      setShowResetModal(false)
+      setResetEmail('')
     } catch (error: any) {
       toast.error(error.message || 'Failed to send password reset email')
+    }
+  }
+
+  const onResetPassword = async (data: ResetFormData) => {
+    if (!hasRecoverySession) {
+      toast.error('Invalid or expired password reset session. Request a new reset email.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: data.password })
+      if (error) throw error
+      toast.success('Password updated successfully. Please sign in.')
+      await supabase.auth.signOut()
+      navigate('/auth?mode=login')
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update password')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -120,11 +187,59 @@ export default function Auth() {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            {isLogin ? 'Sign in to your account' : 'Create a new account'}
+            {isResetMode ? 'Reset your password' : isLogin ? 'Sign in to your account' : 'Create a new account'}
           </h2>
         </div>
         <div className="bg-white py-8 px-6 shadow rounded-lg sm:px-10">
-          {isLogin ? (
+          {isResetMode ? (
+            <form className="space-y-6" onSubmit={handleSubmitReset(onResetPassword)}>
+              {!hasRecoverySession && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                  Password reset links are one-time and time-limited. Request a new reset email if this session is invalid.
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  New Password
+                </label>
+                <input
+                  {...registerReset('password')}
+                  type="password"
+                  autoComplete="new-password"
+                  className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                  placeholder="New password"
+                />
+                {errorsReset.password && (
+                  <p className="mt-1 text-sm text-red-600">{errorsReset.password.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+                  Confirm New Password
+                </label>
+                <input
+                  {...registerReset('confirmPassword')}
+                  type="password"
+                  autoComplete="new-password"
+                  className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                  placeholder="Confirm new password"
+                />
+                {errorsReset.confirmPassword && (
+                  <p className="mt-1 text-sm text-red-600">{errorsReset.confirmPassword.message}</p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || !hasRecoverySession}
+                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {loading ? 'Updating...' : 'Set New Password'}
+              </button>
+            </form>
+          ) : isLogin ? (
             <form className="space-y-6" onSubmit={handleSubmitLogin(onLogin)}>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700">
@@ -161,7 +276,7 @@ export default function Auth() {
               <div className="flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={handlePasswordReset}
+                  onClick={() => setShowResetModal(true)}
                   className="text-sm text-indigo-600 hover:text-indigo-500"
                 >
                   Forgot your password?
@@ -273,6 +388,65 @@ export default function Auth() {
           )}
         </div>
       </div>
+
+      {showResetModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowResetModal(false)
+              setResetEmail('')
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-lg bg-white border border-gray-200 shadow-lg p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Reset Password</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResetModal(false)
+                  setResetEmail('')
+                }}
+                className="text-gray-600 hover:text-gray-900"
+              >
+                x
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-3">
+              Enter your account email and we will send you a password reset link.
+            </p>
+            <input
+              type="email"
+              value={resetEmail}
+              onChange={(event) => setResetEmail(event.target.value)}
+              placeholder="you@example.com"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResetModal(false)
+                  setResetEmail('')
+                }}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-3 py-2 rounded-md text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePasswordReset(resetEmail)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm"
+              >
+                Send Reset Link
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

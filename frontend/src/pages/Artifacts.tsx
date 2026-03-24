@@ -2,32 +2,80 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
+import toast from 'react-hot-toast'
 
 interface Artifact {
   id: string
+  project_id: string
   name: string
   type: string
   description: string | null
   reference: string
+  file_name?: string | null
+  file_mime_type?: string | null
+  file_size_bytes?: number | null
+  is_uploaded_file?: boolean
   created_at: string
   created_by: string
   updated_at: string
 }
 
 export default function Artifacts() {
-  const { profile, loading } = useAuth()
+  const { currentProject, currentProjectId, loading } = useAuth()
   const navigate = useNavigate()
 
   const { data: artifacts, isLoading, error } = useQuery<Artifact[]>({
-    queryKey: ['artifacts'],
+    queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/artifacts')
+      const response = await api.get('/artifacts', { params: { project_id: currentProjectId } })
       return response.data
     },
-    enabled: !loading,
+    enabled: !loading && !!currentProjectId,
   })
 
-  const canCreate = profile?.role && ['reporter', 'developer', 'admin'].includes(profile.role)
+  const canCreate = currentProject?.my_role && ['owner', 'admin', 'developer'].includes(currentProject.my_role)
+
+  const downloadUploadedArtifact = async (artifactId: string, fileName?: string | null) => {
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token || !currentProjectId) {
+        toast.error('You are not authenticated')
+        return
+      }
+
+      const response = await fetch(`${api.defaults.baseURL}/artifacts/${artifactId}/download?project_id=${currentProjectId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to download artifact')
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = fileName || 'artifact-file'
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to download file')
+    }
+  }
+
+  if (!loading && !currentProjectId) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white shadow rounded-lg p-6 text-gray-700">Select a project from the dashboard to view artifacts.</div>
+      </div>
+    )
+  }
 
   if (loading || isLoading) {
     return (
@@ -102,16 +150,25 @@ export default function Artifacts() {
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <a
-                    href={artifact.reference}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-600 hover:text-indigo-800"
-                  >
-                    {artifact.reference.length > 30
-                      ? `${artifact.reference.substring(0, 30)}...`
-                      : artifact.reference}
-                  </a>
+                  {artifact.is_uploaded_file ? (
+                    <button
+                      onClick={() => downloadUploadedArtifact(artifact.id, artifact.file_name)}
+                      className="text-indigo-600 hover:text-indigo-800"
+                    >
+                      Download file
+                    </button>
+                  ) : (
+                    <a
+                      href={artifact.reference}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-600 hover:text-indigo-800"
+                    >
+                      {artifact.reference.length > 30
+                        ? `${artifact.reference.substring(0, 30)}...`
+                        : artifact.reference}
+                    </a>
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {new Date(artifact.created_at).toLocaleDateString()}

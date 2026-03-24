@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
-from backend.dependencies import get_current_user, role_required, supabase
+from backend.dependencies import get_current_user, role_required, ensure_project_role, supabase
+from uuid import UUID
 
 router = APIRouter()
 
@@ -107,15 +108,73 @@ async def list_all_users(user: dict = Depends(role_required(["admin"]))):
     return result.data
 
 @router.get("/users/developers")
-async def list_developers_and_admins(current_user: dict = Depends(get_current_user)):
-    """List developers and admins (for assignment)"""
-    result = supabase.table("users").select("*").in_("role", ["developer", "admin"]).execute()
-    return result.data
+async def list_developers_and_admins(
+    project_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """List assignable users within a project (developer/admin/owner)."""
+    ensure_project_role(
+        supabase,
+        project_id,
+        current_user["user_id"],
+        ["owner", "admin", "developer", "reporter"],
+    )
+
+    members_result = (
+        supabase.table("project_members")
+        .select("user_id,role")
+        .eq("project_id", str(project_id))
+        .in_("role", ["owner", "admin", "developer"])
+        .execute()
+    )
+
+    members = members_result.data or []
+    if not members:
+        return []
+
+    user_ids = [member["user_id"] for member in members]
+    users_result = supabase.table("users").select("id,email,full_name,avatar_url").in_("id", user_ids).execute()
+    users_by_id = {row["id"]: row for row in (users_result.data or [])}
+
+    response = []
+    for member in members:
+        profile = users_by_id.get(member["user_id"], {})
+        response.append(
+            {
+                "id": member["user_id"],
+                "project_role": member["role"],
+                "email": profile.get("email"),
+                "full_name": profile.get("full_name"),
+                "avatar_url": profile.get("avatar_url"),
+            }
+        )
+    return response
 
 @router.get("/users/profiles")
-async def list_user_profiles(current_user: dict = Depends(get_current_user)):
-    """List lightweight user profiles for avatar/name rendering."""
-    result = supabase.table("users").select("id, full_name, email, avatar_url").execute()
+async def list_user_profiles(
+    project_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """List lightweight user profiles for project members."""
+    ensure_project_role(
+        supabase,
+        project_id,
+        current_user["user_id"],
+        ["owner", "admin", "developer", "reporter"],
+    )
+
+    members_result = (
+        supabase.table("project_members")
+        .select("user_id")
+        .eq("project_id", str(project_id))
+        .execute()
+    )
+
+    user_ids = [member["user_id"] for member in (members_result.data or [])]
+    if not user_ids:
+        return []
+
+    result = supabase.table("users").select("id, full_name, email, avatar_url").in_("id", user_ids).execute()
     return result.data
 
 @router.get("/admin-only")

@@ -8,6 +8,7 @@ from backend.utils.security import sanitize_text, sanitize_url, validate_enum_va
 ARTIFACT_TYPES = ['product_backlog', 'design_document', 'diagram', 'formal_spec', 'source_file', 'test_source_file', 'binary', 'data_file', 'other']
 
 class ArtifactCreate(BaseModel):
+    project_id: UUID
     name: str = Field(..., min_length=1, max_length=MAX_NAME_LENGTH)
     type: str = Field(..., min_length=1)
     description: Optional[str] = Field(None, max_length=MAX_DESCRIPTION_LENGTH)
@@ -103,10 +104,15 @@ class ArtifactUpdate(BaseModel):
 
 class ArtifactResponse(BaseModel):
     id: UUID
+    project_id: UUID
     name: str
     type: str
     description: Optional[str]
     reference: str
+    file_name: Optional[str] = None
+    file_mime_type: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    is_uploaded_file: bool = False
     created_at: datetime
     created_by: UUID
     updated_at: datetime

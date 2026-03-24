@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -43,6 +43,14 @@ interface UserProfileLite {
   full_name?: string | null
   email?: string | null
   avatar_url?: string | null
+}
+
+interface AssignmentInvitation {
+  id: string
+  bug_id: string
+  invited_by: string
+  status: 'pending' | 'accepted' | 'declined'
+  created_at: string
 }
 
 const statusColors: Record<string, string> = {
@@ -110,7 +118,7 @@ const uniqueByValue = (options: FilterOption[]) => {
 }
 
 export default function Bugs() {
-  const { user, profile, loading } = useAuth()
+  const { user, loading, currentProject, currentProjectId } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
@@ -134,11 +142,16 @@ export default function Bugs() {
   const pageSize = 10
 
   const { data: bugs, isLoading, error } = useQuery<Bug[]>({
-    queryKey: ['bugs'],
+    queryKey: ['bugs', currentProjectId],
     queryFn: async () => {
+      if (!currentProjectId) {
+        return []
+      }
+
       const params = {
         skip: 0,
         limit: 100,
+        project_id: currentProjectId,
       }
 
       const response = await api.get('/bugs', { params })
@@ -162,7 +175,9 @@ export default function Bugs() {
       const enriched = await Promise.all(
         bugsList.map(async (bug) => {
           try {
-            const detailResponse = await api.get(`/bugs/${bug.id}`)
+            const detailResponse = await api.get(`/bugs/${bug.id}`, {
+              params: { project_id: currentProjectId },
+            })
             const detailBug = detailResponse.data
             const detailArtifactIds: string[] = Array.isArray(detailBug?.artifact_ids)
               ? detailBug.artifact_ids
@@ -197,34 +212,53 @@ export default function Bugs() {
 
       return enriched
     },
-    enabled: !loading,
+    enabled: !loading && !!currentProjectId,
   })
 
   const { data: artifacts } = useQuery<Artifact[]>({
-    queryKey: ['artifacts'],
+    queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/artifacts', { params: { skip: 0, limit: 100 } })
+      const response = await api.get('/artifacts', { params: { skip: 0, limit: 100, project_id: currentProjectId } })
       return Array.isArray(response.data) ? response.data : []
     },
-    enabled: !loading,
+    enabled: !loading && !!currentProjectId,
   })
 
   const { data: assignees } = useQuery<AssignableUser[]>({
-    queryKey: ['users', 'developers'],
+    queryKey: ['users', 'developers', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/users/developers')
+      const response = await api.get('/users/developers', { params: { project_id: currentProjectId } })
       return response.data
     },
-    enabled: !loading,
+    enabled: !loading && !!currentProjectId,
   })
 
   const { data: userProfiles } = useQuery<UserProfileLite[]>({
-    queryKey: ['users', 'profiles', user?.id],
+    queryKey: ['users', 'profiles', user?.id, currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/users/profiles')
+      const response = await api.get('/users/profiles', { params: { project_id: currentProjectId } })
       return Array.isArray(response.data) ? response.data : []
     },
-    enabled: !loading && !!user?.id,
+    enabled: !loading && !!user?.id && !!currentProjectId,
+  })
+
+  const { data: invitations } = useQuery<AssignmentInvitation[]>({
+    queryKey: ['bug-assignment-invitations', currentProjectId],
+    queryFn: async () => {
+      const response = await api.get('/bugs/assignment-invitations', { params: { project_id: currentProjectId } })
+      return Array.isArray(response.data) ? response.data : []
+    },
+    enabled: !loading && !!currentProjectId,
+  })
+
+  const respondInvitationMutation = useMutation({
+    mutationFn: async ({ invitationId, action }: { invitationId: string; action: 'accept' | 'decline' }) => {
+      return api.patch(`/bugs/assignment-invitations/${invitationId}`, null, { params: { action } })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bug-assignment-invitations', currentProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
+    },
   })
 
   const getAssignedLabel = (assignedTo: string | null) => {
@@ -266,7 +300,6 @@ export default function Bugs() {
       bug.reporter_avatar_url?.trim() || null,
       reporter?.avatar_url?.trim() || null,
       assigneeMatch?.avatar_url?.trim() || null,
-      user?.id && bug.reporter_id === user.id ? profile?.avatar_url?.trim() || null : null,
     ].filter((value): value is string => !!value)
 
     const firstUsable = candidateUrls.find((url) => !failedReporterAvatarUrls.has(url))
@@ -562,7 +595,15 @@ export default function Bugs() {
     </div>
   )
 
-  const canCreate = profile?.role && ['reporter', 'developer', 'admin'].includes(profile.role)
+  const canCreate = currentProject?.my_role && ['owner', 'admin', 'developer', 'reporter'].includes(currentProject.my_role)
+
+  if (!loading && !currentProjectId) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white shadow rounded-lg p-6 text-gray-700">Select a project from the dashboard to view bugs.</div>
+      </div>
+    )
+  }
 
   if (loading || isLoading) {
     return (
@@ -593,6 +634,35 @@ export default function Bugs() {
           </button>
         )}
       </div>
+
+      {(invitations || []).length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+          <h2 className="text-sm font-semibold text-amber-900 mb-2">Pending Assignment Invitations</h2>
+          <div className="space-y-2">
+            {(invitations || []).map((invitation) => (
+              <div key={invitation.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-amber-900">Bug {invitation.bug_id.slice(0, 8)}... invited at {new Date(invitation.created_at).toLocaleString()}</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => respondInvitationMutation.mutate({ invitationId: invitation.id, action: 'accept' })}
+                    className="px-3 py-1 rounded bg-green-600 text-white"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => respondInvitationMutation.mutate({ invitationId: invitation.id, action: 'decline' })}
+                    className="px-3 py-1 rounded bg-gray-700 text-white"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white shadow rounded-lg p-4 mb-6">

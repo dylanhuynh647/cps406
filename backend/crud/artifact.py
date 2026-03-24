@@ -7,6 +7,7 @@ from datetime import datetime
 def create_artifact(db: Client, artifact_data: ArtifactCreate, user_id: UUID):
     """Create a new artifact"""
     result = db.table("artifacts").insert({
+        "project_id": str(artifact_data.project_id),
         "name": artifact_data.name,
         "type": artifact_data.type,
         "description": artifact_data.description,
@@ -19,18 +20,28 @@ def create_artifact(db: Client, artifact_data: ArtifactCreate, user_id: UUID):
     
     return result.data[0]
 
-def get_artifact(db: Client, artifact_id: UUID):
+def get_artifact(db: Client, artifact_id: UUID, project_id: Optional[UUID] = None):
     """Get a single artifact by ID"""
-    result = db.table("artifacts").select("*").eq("id", str(artifact_id)).single().execute()
+    query = db.table("artifacts").select("*").eq("id", str(artifact_id))
+    if project_id:
+        query = query.eq("project_id", str(project_id))
+    result = query.single().execute()
     
     if not result.data:
         return None
     
     return result.data
 
-def get_artifacts(db: Client, skip: int = 0, limit: int = 100):
+def get_artifacts(db: Client, project_id: UUID, skip: int = 0, limit: int = 100):
     """Get all artifacts with pagination"""
-    result = db.table("artifacts").select("*").order("created_at", desc=True).range(skip, skip + limit - 1).execute()
+    result = (
+        db.table("artifacts")
+        .select("*")
+        .eq("project_id", str(project_id))
+        .order("created_at", desc=True)
+        .range(skip, skip + limit - 1)
+        .execute()
+    )
     return result.data
 
 def update_artifact(db: Client, artifact_id: UUID, artifact_data: ArtifactUpdate):

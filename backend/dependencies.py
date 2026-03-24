@@ -2,6 +2,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import create_client, Client
 import os
+from uuid import UUID
+from typing import Optional
 
 security = HTTPBearer()
 
@@ -14,7 +16,14 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # Export supabase for use in other modules
-__all__ = ["supabase", "supabase_auth_secure", "role_required", "get_current_user"]
+__all__ = [
+    "supabase",
+    "supabase_auth_secure",
+    "role_required",
+    "get_current_user",
+    "get_project_role",
+    "ensure_project_role",
+]
 
 async def supabase_auth_secure(
     credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -94,3 +103,39 @@ def role_required(allowed_roles: list[str]):
 def get_current_user(user: dict = Depends(supabase_auth_secure)) -> dict:
     """Get current authenticated user"""
     return user
+
+
+def get_project_role(db: Client, project_id: UUID, user_id: UUID | str) -> Optional[str]:
+    """Return the current member role for a project, if any."""
+    try:
+        result = (
+            db.table("project_members")
+            .select("role")
+            .eq("project_id", str(project_id))
+            .eq("user_id", str(user_id))
+            .single()
+            .execute()
+        )
+        if result.data:
+            return result.data.get("role")
+    except Exception:
+        return None
+    return None
+
+
+def ensure_project_role(db: Client, project_id: UUID, user_id: UUID | str, allowed_roles: list[str]) -> str:
+    """Ensure user is a member in project with one of allowed roles."""
+    role = get_project_role(db, project_id, user_id)
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a member of this project",
+        )
+
+    if role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User with role '{role}' does not have permission for this project",
+        )
+
+    return role

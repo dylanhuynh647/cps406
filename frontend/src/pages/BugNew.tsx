@@ -39,7 +39,7 @@ const formatSeverityLabel = (value: string) =>
 
 export default function BugNew() {
   const navigate = useNavigate()
-  const { profile } = useAuth()
+  const { currentProject, currentProjectId } = useAuth()
 
   const {
     register,
@@ -56,31 +56,37 @@ export default function BugNew() {
   })
 
   const { data: artifacts } = useQuery({
-    queryKey: ['artifacts'],
+    queryKey: ['artifacts', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/artifacts')
+      const response = await api.get('/artifacts', { params: { project_id: currentProjectId } })
       return response.data
     },
+    enabled: !!currentProjectId,
   })
 
   const { data: users } = useQuery({
-    queryKey: ['users', 'developers'],
+    queryKey: ['users', 'developers', currentProjectId],
     queryFn: async () => {
-      const response = await api.get('/users/developers')
+      const response = await api.get('/users/developers', { params: { project_id: currentProjectId } })
       return response.data
     },
-    enabled: profile?.role === 'admin',
+    enabled: !!currentProjectId,
   })
 
   const createMutation = useMutation({
     mutationFn: async (data: BugFormData) => {
       return api.post('/bugs', {
         ...data,
+        project_id: currentProjectId,
         artifact_ids: data.artifact_ids?.map(id => id) || [],
       })
     },
-    onSuccess: (response) => {
-      toast.success('Bug created successfully!')
+    onSuccess: (response, variables) => {
+      if (variables.assigned_to) {
+        toast.success('Bug created and assignment invite sent!')
+      } else {
+        toast.success('Bug created successfully!')
+      }
       navigate(`/bugs/${response.data.id}`)
     },
     onError: (error: any) => {
@@ -91,7 +97,23 @@ export default function BugNew() {
   const selectedArtifacts = watch('artifact_ids') || []
 
   const onSubmit = (data: BugFormData) => {
+    if (!currentProjectId) {
+      toast.error('Select a project first')
+      return
+    }
+    if (currentProject?.my_role === 'reporter' && !data.assigned_to) {
+      toast.error('Reporter bugs must include an assignee')
+      return
+    }
     createMutation.mutate(data)
+  }
+
+  if (!currentProjectId) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white shadow rounded-lg p-6 text-gray-700">Select a project from the dashboard before reporting a bug.</div>
+      </div>
+    )
   }
 
   return (
@@ -182,7 +204,7 @@ export default function BugNew() {
             </select>
           </div>
 
-          {profile?.role === 'admin' && users && (
+          {users && (
             <div>
               <label htmlFor="assigned_to" className="block text-sm font-medium text-gray-700">
                 Assigned To
@@ -194,7 +216,7 @@ export default function BugNew() {
                 <option value="">Unassigned</option>
                 {users.map((user: any) => (
                   <option key={user.id} value={user.id}>
-                    {user.full_name || user.email}
+                    {user.full_name || user.email} ({user.project_role})
                   </option>
                 ))}
               </select>
