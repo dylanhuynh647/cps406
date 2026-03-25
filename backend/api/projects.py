@@ -13,9 +13,12 @@ from backend.schemas.project import (
     ProjectMemberAdd,
     ProjectMemberResponse,
     ProjectMemberUpdate,
+    ProjectPhaseResponse,
+    ProjectPhaseSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
 )
+from backend.utils.phases import advance_project_phase, maybe_auto_advance_project_phase
 
 router = APIRouter()
 PROJECT_COVER_UPLOAD_ROOT = Path("backend") / "uploads" / "project_covers"
@@ -73,6 +76,9 @@ def _normalize_project_row(row: dict, my_role: str) -> dict:
         "cover_image_url": row.get("cover_image_url"),
         "owner_id": row["owner_id"],
         "my_role": my_role,
+        "current_phase_number": row.get("current_phase_number") or 1,
+        "current_phase_started_at": row.get("current_phase_started_at") or row["created_at"],
+        "phase_auto_mode": row.get("phase_auto_mode"),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -93,9 +99,13 @@ async def list_my_projects(user: dict = Depends(get_current_user)):
         return []
 
     project_ids = [membership["project_id"] for membership in memberships]
+
+    for project_id in project_ids:
+        maybe_auto_advance_project_phase(supabase, UUID(project_id))
+
     projects_result = (
         supabase.table("projects")
-        .select("id,name,description,cover_image_url,owner_id,created_at,updated_at")
+        .select("id,name,description,cover_image_url,owner_id,current_phase_number,current_phase_started_at,phase_auto_mode,created_at,updated_at")
         .in_("id", project_ids)
         .order("created_at", desc=True)
         .execute()
@@ -119,6 +129,8 @@ async def create_project(payload: ProjectCreate, user: dict = Depends(get_curren
             "description": payload.description,
             "cover_image_url": None,
             "owner_id": user_id,
+            "current_phase_number": 1,
+            "phase_auto_mode": None,
         })
         .execute()
     )
@@ -137,6 +149,17 @@ async def create_project(payload: ProjectCreate, user: dict = Depends(get_curren
         }
     ).execute()
 
+    supabase.table("project_phases").upsert(
+        {
+            "project_id": project["id"],
+            "phase_number": 1,
+            "started_at": project.get("current_phase_started_at") or project.get("created_at"),
+            "transition_type": "initial",
+            "changed_by": user_id,
+        },
+        on_conflict="project_id,phase_number",
+    ).execute()
+
     return ProjectResponse(**_normalize_project_row(project, "owner"))
 
 
@@ -147,6 +170,7 @@ async def update_project(
     user: dict = Depends(get_current_user),
 ):
     role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
+    maybe_auto_advance_project_phase(supabase, project_id)
 
     update_data = {}
     if payload.name is not None:
@@ -166,7 +190,7 @@ async def update_project(
 
     project_result = (
         supabase.table("projects")
-        .select("id,name,description,cover_image_url,owner_id,created_at,updated_at")
+        .select("id,name,description,cover_image_url,owner_id,current_phase_number,current_phase_started_at,phase_auto_mode,created_at,updated_at")
         .eq("id", str(project_id))
         .single()
         .execute()
@@ -175,6 +199,100 @@ async def update_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     return ProjectResponse(**_normalize_project_row(project_result.data, role))
+
+
+@router.get("/projects/{project_id}/phases", response_model=List[ProjectPhaseResponse])
+async def list_project_phases(
+    project_id: UUID,
+    user: dict = Depends(get_current_user),
+):
+    ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin", "developer", "reporter"])
+    maybe_auto_advance_project_phase(supabase, project_id)
+
+    phases_result = (
+        supabase.table("project_phases")
+        .select("id,project_id,phase_number,started_at,ended_at,transition_type,changed_by,created_at,updated_at")
+        .eq("project_id", str(project_id))
+        .order("phase_number", desc=True)
+        .execute()
+    )
+    return phases_result.data or []
+
+
+@router.patch("/projects/{project_id}/phase-settings", response_model=ProjectResponse)
+async def update_project_phase_settings(
+    project_id: UUID,
+    payload: ProjectPhaseSettingsUpdate,
+    user: dict = Depends(get_current_user),
+):
+    role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
+
+    update_result = (
+        supabase.table("projects")
+        .update({"phase_auto_mode": payload.phase_auto_mode})
+        .eq("id", str(project_id))
+        .execute()
+    )
+    if not update_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    maybe_auto_advance_project_phase(supabase, project_id)
+    project_result = (
+        supabase.table("projects")
+        .select("id,name,description,cover_image_url,owner_id,current_phase_number,current_phase_started_at,phase_auto_mode,created_at,updated_at")
+        .eq("id", str(project_id))
+        .single()
+        .execute()
+    )
+    if not project_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return ProjectResponse(**_normalize_project_row(project_result.data, role))
+
+
+@router.post("/projects/{project_id}/phases/advance", response_model=ProjectResponse)
+async def advance_phase(
+    project_id: UUID,
+    user: dict = Depends(get_current_user),
+):
+    role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
+    advance_project_phase(
+        supabase,
+        project_id,
+        transition_type="manual",
+        changed_by=user["user_id"],
+    )
+
+    project_result = (
+        supabase.table("projects")
+        .select("id,name,description,cover_image_url,owner_id,current_phase_number,current_phase_started_at,phase_auto_mode,created_at,updated_at")
+        .eq("id", str(project_id))
+        .single()
+        .execute()
+    )
+    if not project_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return ProjectResponse(**_normalize_project_row(project_result.data, role))
+
+
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: UUID,
+    user: dict = Depends(get_current_user),
+):
+    ensure_project_role(supabase, project_id, user["user_id"], ["owner"])
+
+    delete_result = (
+        supabase.table("projects")
+        .delete()
+        .eq("id", str(project_id))
+        .execute()
+    )
+
+    if not delete_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return None
 
 
 @router.get("/projects/{project_id}/members", response_model=List[ProjectMemberResponse])
@@ -563,7 +681,10 @@ async def get_project_cover_image(
         return Response(
             content=file_bytes,
             media_type=project_row.get("cover_image_mime_type") or "application/octet-stream",
-            headers={"Content-Disposition": f'inline; filename="project-{project_id}-cover"'},
+            headers={
+                "Content-Disposition": f'inline; filename="project-{project_id}-cover"',
+                "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+            },
         )
 
     # Legacy filesystem fallback for older cover uploads.
@@ -573,4 +694,9 @@ async def get_project_cover_image(
 
     disk_path = files[0]
     media_type = mimetypes.guess_type(str(disk_path))[0] or "application/octet-stream"
-    return FileResponse(path=str(disk_path), media_type=media_type, filename=disk_path.name)
+    return FileResponse(
+        path=str(disk_path),
+        media_type=media_type,
+        filename=disk_path.name,
+        headers={"Cache-Control": "public, max-age=3600, stale-while-revalidate=86400"},
+    )

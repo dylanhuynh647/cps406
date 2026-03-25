@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { useState } from 'react'
+import { LoadingPulse } from '../components/LoadingPulse'
 
 const artifactSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -38,6 +39,17 @@ export default function ArtifactDetail() {
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [replacementFile, setReplacementFile] = useState<File | null>(null)
+
+  const getCdCommandFromReference = (reference: string) => {
+    const trimmed = reference.trim()
+    if (/^https?:\/\//i.test(trimmed)) {
+      return null
+    }
+    if (trimmed.startsWith('/')) {
+      return `cd .${trimmed}`
+    }
+    return `cd ./${trimmed}`
+  }
 
   const { data: artifact, isLoading } = useQuery({
     queryKey: ['artifact', id, currentProjectId],
@@ -107,7 +119,7 @@ export default function ArtifactDetail() {
   })
 
   const canEdit = !!currentProject?.my_role && ['owner', 'admin', 'developer'].includes(currentProject.my_role)
-  const canDelete = !!currentProject?.my_role && ['owner', 'admin'].includes(currentProject.my_role)
+  const canDelete = !!currentProject?.my_role && ['owner', 'admin', 'developer'].includes(currentProject.my_role)
 
   const downloadUploadedArtifact = async () => {
     try {
@@ -177,11 +189,7 @@ export default function ArtifactDetail() {
   }
 
   if (isLoading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-center">Loading artifact...</div>
-      </div>
-    )
+    return <LoadingPulse fullscreen label="Loading artifact" />
   }
 
   if (!artifact) {
@@ -196,29 +204,20 @@ export default function ArtifactDetail() {
     updateMutation.mutate({ data, file: replacementFile })
   }
 
+  const neutralActionButtonClass = 'bg-gray-400 hover:bg-gray-300 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 transition-colors duration-150 px-4 py-2 rounded-md text-sm font-medium'
+
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="bg-white shadow rounded-lg p-6">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-start mb-6 gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Artifact Details</h1>
-          <div className="flex space-x-2">
-            {canEdit && !isEditing && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Edit
-              </button>
-            )}
-            {canDelete && (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Delete
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className={neutralActionButtonClass}
+          >
+            Back
+          </button>
         </div>
 
         {showDeleteConfirm && (
@@ -233,7 +232,7 @@ export default function ArtifactDetail() {
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
+                className={neutralActionButtonClass}
               >
                 Cancel
               </button>
@@ -313,14 +312,14 @@ export default function ArtifactDetail() {
                   setReplacementFile(null)
                   reset()
                 }}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
+                className={neutralActionButtonClass}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={updateMutation.isPending}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
               >
                 {updateMutation.isPending ? 'Saving...' : 'Save'}
               </button>
@@ -362,14 +361,37 @@ export default function ArtifactDetail() {
                   </button>
                 </div>
               ) : (
-                <a
-                  href={artifact.reference}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 text-sm text-indigo-600 hover:text-indigo-800"
-                >
-                  {artifact.reference}
-                </a>
+                (() => {
+                  const cdCommand = getCdCommandFromReference(artifact.reference)
+                  if (!cdCommand) {
+                    return (
+                      <a
+                        href={artifact.reference}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 text-sm text-indigo-600 hover:text-indigo-800"
+                      >
+                        {artifact.reference}
+                      </a>
+                    )
+                  }
+
+                  return (
+                    <div className="mt-1 flex items-center gap-2">
+                      <code className="inline-block rounded bg-gray-100 px-2 py-1 text-xs text-gray-700">{cdCommand}</code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(cdCommand)
+                          toast.success('Copied cd command')
+                        }}
+                        className="text-indigo-600 hover:text-indigo-800 text-xs font-medium"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  )
+                })()
               )}
             </div>
             <div>
@@ -377,6 +399,24 @@ export default function ArtifactDetail() {
               <p className="mt-1 text-sm text-gray-900">
                 {new Date(artifact.created_at).toLocaleString()}
               </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              {canEdit && !isEditing && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  Edit
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  Delete
+                </button>
+              )}
             </div>
           </div>
         )}

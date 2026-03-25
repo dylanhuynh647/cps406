@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
+import re
 from backend.utils.security import sanitize_text, sanitize_url, validate_enum_value, MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_REFERENCE_LENGTH
 
 # Allowed artifact types
@@ -44,12 +45,16 @@ class ArtifactCreate(BaseModel):
             raise ValueError("Reference cannot be empty")
         # Allow both URLs and file paths
         v = v.strip()
+        lowered = v.lower()
+        if lowered.startswith("javascript:") or lowered.startswith("data:"):
+            raise ValueError("Reference contains an unsupported URL scheme")
         if v.startswith("http://") or v.startswith("https://"):
             return sanitize_url(v)
         elif v.startswith("/"):
             # Relative path - sanitize
-            sanitized = sanitize_text(v, MAX_REFERENCE_LENGTH)
-            return sanitized
+            return sanitize_url(v)
+        elif re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", v):
+            raise ValueError("Reference contains an unsupported URL scheme")
         else:
             # Try to sanitize as text
             return sanitize_text(v, MAX_REFERENCE_LENGTH)
@@ -95,10 +100,15 @@ class ArtifactUpdate(BaseModel):
         if not v.strip():
             raise ValueError("Reference cannot be empty")
         v = v.strip()
+        lowered = v.lower()
+        if lowered.startswith("javascript:") or lowered.startswith("data:"):
+            raise ValueError("Reference contains an unsupported URL scheme")
         if v.startswith("http://") or v.startswith("https://"):
             return sanitize_url(v)
         elif v.startswith("/"):
-            return sanitize_text(v, MAX_REFERENCE_LENGTH)
+            return sanitize_url(v)
+        elif re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", v):
+            raise ValueError("Reference contains an unsupported URL scheme")
         else:
             return sanitize_text(v, MAX_REFERENCE_LENGTH)
 

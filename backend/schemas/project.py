@@ -4,6 +4,7 @@ from uuid import UUID
 from datetime import datetime
 
 PROJECT_ROLES = ["owner", "admin", "developer", "reporter"]
+PHASE_AUTO_MODES = ["weekly", "biweekly", "monthly"]
 
 
 class ProjectCreate(BaseModel):
@@ -26,6 +27,9 @@ class ProjectResponse(BaseModel):
     cover_image_url: Optional[str] = None
     owner_id: UUID
     my_role: str
+    current_phase_number: int = 1
+    current_phase_started_at: datetime
+    phase_auto_mode: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -43,6 +47,34 @@ class ProjectUpdate(BaseModel):
         if not trimmed:
             raise ValueError("Project name cannot be empty")
         return trimmed
+
+
+class ProjectPhaseSettingsUpdate(BaseModel):
+    phase_auto_mode: Optional[str] = None
+
+    @field_validator("phase_auto_mode")
+    @classmethod
+    def validate_phase_auto_mode(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        if normalized not in PHASE_AUTO_MODES:
+            raise ValueError("phase_auto_mode must be one of: weekly, biweekly, monthly")
+        return normalized
+
+
+class ProjectPhaseResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    phase_number: int
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    transition_type: str
+    changed_by: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ProjectMemberAdd(BaseModel):

@@ -7,6 +7,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import { useEffect, useState } from 'react'
+import { LoadingPulse } from '../components/LoadingPulse'
 
 const bugSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -79,7 +80,7 @@ export default function BugDetail() {
       ['owner', 'admin', 'developer'].includes(currentProject.my_role) ||
       (currentProject.my_role === 'reporter' && bug?.reporter_id === user?.id)
     )
-  const canDelete = currentProject?.my_role && ['owner', 'admin'].includes(currentProject.my_role)
+  const canDelete = currentProject?.my_role && ['owner', 'admin', 'developer'].includes(currentProject.my_role)
   const canUpdateSeverity = !!currentProject?.my_role
 
   const { data: users } = useQuery({
@@ -228,11 +229,7 @@ export default function BugDetail() {
 
 
   if (isLoading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-center">Loading bug...</div>
-      </div>
-    )
+    return <LoadingPulse fullscreen label="Loading bug" />
   }
 
   if (!currentProjectId) {
@@ -255,29 +252,20 @@ export default function BugDetail() {
     updateMutation.mutate(data)
   }
 
+  const neutralActionButtonClass = 'bg-gray-400 hover:bg-gray-300 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 transition-colors duration-150 px-4 py-2 rounded-md text-sm font-medium'
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="bg-white shadow rounded-lg p-6">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-start mb-6 gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Bug Details</h1>
-          <div className="flex space-x-2">
-            {canEdit && !isEditing && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Edit
-              </button>
-            )}
-            {canDelete && (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Delete
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className={neutralActionButtonClass}
+          >
+            Back
+          </button>
         </div>
 
         {showDeleteConfirm && (
@@ -292,7 +280,7 @@ export default function BugDetail() {
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
+                className={neutralActionButtonClass}
               >
                 Cancel
               </button>
@@ -310,6 +298,8 @@ export default function BugDetail() {
                     <img
                       src={reporterAvatar}
                       alt={reporterName}
+                      loading="lazy"
+                      decoding="async"
                       onError={(event) => {
                         const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src
                         if (!failedUrl) {
@@ -341,7 +331,7 @@ export default function BugDetail() {
               <div className="mt-1 flex items-center gap-2">
                 <div className="h-7 w-7 overflow-hidden rounded-full border border-gray-200 bg-gray-100">
                   {assignedUserAvatar ? (
-                    <img src={assignedUserAvatar} alt={assignedUserName} className="h-full w-full object-cover" />
+                    <img src={assignedUserAvatar} alt={assignedUserName} className="h-full w-full object-cover" loading="lazy" decoding="async" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-gray-500">
                       {assignedUserName.charAt(0).toUpperCase()}
@@ -462,14 +452,14 @@ export default function BugDetail() {
                   setIsEditing(false)
                   reset()
                 }}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-900 border border-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white dark:border-gray-500 px-4 py-2 rounded-md text-sm font-medium"
+                className={neutralActionButtonClass}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={updateMutation.isPending}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
               >
                 {updateMutation.isPending ? 'Saving...' : 'Save'}
               </button>
@@ -561,6 +551,24 @@ export default function BugDetail() {
                 </div>
               </div>
             )}
+            <div className="flex justify-end gap-2 pt-2">
+              {canEdit && !isEditing && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  Edit
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

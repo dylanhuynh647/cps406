@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { LoadingPulse } from '../components/LoadingPulse'
 
 interface Bug {
   id: string
@@ -606,11 +607,7 @@ export default function Bugs() {
   }
 
   if (loading || isLoading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-center">Loading bugs...</div>
-      </div>
-    )
+    return <LoadingPulse fullscreen label="Loading bugs" />
   }
 
   if (error) {
@@ -628,7 +625,7 @@ export default function Bugs() {
         {canCreate && (
           <button
             onClick={() => navigate('/bugs/new')}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+            className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium"
           >
             Report New Bug
           </button>
@@ -675,13 +672,13 @@ export default function Bugs() {
               value={filters.query}
               onChange={(e) => updateFilters({ query: e.target.value })}
               placeholder="Search bugs by title, description, status, type, severity, reporter, or artifact"
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="block w-full px-3 py-2 border border-gray-300 bg-slate-50 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             />
           </div>
           <button
             type="button"
             onClick={() => setShowAdvancedFilters((prev) => !prev)}
-            className="inline-flex justify-center items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            className="inline-flex justify-center items-center px-3 py-2 border border-blue-900 rounded-md text-sm font-medium text-white bg-blue-800 hover:bg-blue-900 transition-colors"
           >
             {showAdvancedFilters ? 'Hide Filter Options' : 'Show Filter Options'}
           </button>
@@ -918,7 +915,7 @@ export default function Bugs() {
                 onClick={() => setCurrentPage(pageNumber)}
                 className={`rounded-md px-3 py-1 text-sm ${
                   pageNumber === safeCurrentPage
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-blue-800 text-white'
                     : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
                 }`}
               >

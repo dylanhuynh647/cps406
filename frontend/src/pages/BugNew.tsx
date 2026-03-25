@@ -78,6 +78,7 @@ export default function BugNew() {
       return api.post('/bugs', {
         ...data,
         project_id: currentProjectId,
+        assigned_to: data.assigned_to || null,
         artifact_ids: data.artifact_ids?.map(id => id) || [],
       })
     },
@@ -254,7 +255,7 @@ export default function BugNew() {
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+              className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
             >
               {createMutation.isPending ? 'Creating...' : 'Create Bug'}
             </button>

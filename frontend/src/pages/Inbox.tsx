@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import { LoadingPulse } from '../components/LoadingPulse'
 
 interface AssignmentInvitation {
   id: string
@@ -42,26 +43,28 @@ export default function Inbox() {
   const [statusFilter, setStatusFilter] = useState<'pending' | 'accepted' | 'declined' | 'all'>('pending')
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const { setCurrentProjectId, refreshProjects } = useAuth()
+  const { user, setCurrentProjectId, refreshProjects } = useAuth()
 
   const { data: bugInvitations, isLoading: isBugInboxLoading } = useQuery<AssignmentInvitation[]>({
-    queryKey: ['invitation-inbox', statusFilter],
+    queryKey: ['invitation-inbox', user?.id, statusFilter],
     queryFn: async () => {
       const response = await api.get('/bugs/assignment-invitations/inbox', {
         params: { status_filter: statusFilter },
       })
       return Array.isArray(response.data) ? response.data : []
     },
+    enabled: !!user,
   })
 
   const { data: projectInvitations, isLoading: isProjectInboxLoading } = useQuery<ProjectInvitation[]>({
-    queryKey: ['project-invitation-inbox', statusFilter],
+    queryKey: ['project-invitation-inbox', user?.id, statusFilter],
     queryFn: async () => {
       const response = await api.get('/projects/member-invitations/inbox', {
         params: { status_filter: statusFilter },
       })
       return Array.isArray(response.data) ? response.data : []
     },
+    enabled: !!user,
   })
 
   const respondBugInvitationMutation = useMutation({
@@ -69,8 +72,8 @@ export default function Inbox() {
       return api.patch(`/bugs/assignment-invitations/${invitationId}`, null, { params: { action } })
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['invitation-inbox'] })
-      queryClient.invalidateQueries({ queryKey: ['bug-assignment-invitations'] })
+      queryClient.invalidateQueries({ queryKey: ['invitation-inbox', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['bug-assignment-invitations', user?.id] })
       queryClient.invalidateQueries({ queryKey: ['bugs'] })
       toast.success(variables.action === 'accept' ? 'Invitation accepted' : 'Invitation declined')
     },
@@ -84,8 +87,8 @@ export default function Inbox() {
       return api.patch(`/projects/member-invitations/${invitationId}`, null, { params: { action } })
     },
     onSuccess: async (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['project-invitation-inbox'] })
-      queryClient.invalidateQueries({ queryKey: ['invitation-inbox'] })
+      queryClient.invalidateQueries({ queryKey: ['project-invitation-inbox', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['invitation-inbox', user?.id] })
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       if (variables.action === 'accept') {
         await refreshProjects()
@@ -103,6 +106,10 @@ export default function Inbox() {
   ].sort((a, b) => new Date(b.value.created_at).getTime() - new Date(a.value.created_at).getTime())
 
   const isLoading = isBugInboxLoading || isProjectInboxLoading
+
+  if (isLoading) {
+    return <LoadingPulse fullscreen label="Syncing invitations" />
+  }
 
   const openBugFromInbox = (invitation: AssignmentInvitation) => {
     setCurrentProjectId(invitation.project_id)
@@ -127,9 +134,7 @@ export default function Inbox() {
           </select>
         </div>
 
-        {isLoading ? (
-          <p className="text-sm text-gray-600 dark:text-gray-300">Loading invitations...</p>
-        ) : allItems.length === 0 ? (
+        {allItems.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No invitations found for this filter.</p>
         ) : (
           <div className="space-y-3">

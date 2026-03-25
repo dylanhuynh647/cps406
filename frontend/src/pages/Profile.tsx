@@ -3,9 +3,11 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import toast from 'react-hot-toast'
+import { LoadingPulse } from '../components/LoadingPulse'
 
 const profileSchema = z.object({
   full_name: z.string().optional(),
@@ -14,7 +16,8 @@ const profileSchema = z.object({
 type ProfileFormData = z.infer<typeof profileSchema>
 
 export default function Profile() {
-  const { user, profile, loading: authLoading, refreshProfile, setDarkModePreference } = useAuth()
+  const { user, profile, loading: authLoading, refreshProfile, setDarkModePreference, signOut } = useAuth()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(true)
@@ -163,11 +166,7 @@ export default function Profile() {
   }
 
   if (fetching) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-center">Loading...</div>
-      </div>
-    )
+    return <LoadingPulse fullscreen label="Loading profile" />
   }
 
   return (
@@ -272,16 +271,21 @@ export default function Profile() {
             </label>
           </div>
 
-          <div className="pt-4 border-t border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Notification Preferences</h3>
-            <p className="text-sm text-gray-500">Coming soon...</p>
-          </div>
-
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                await signOut()
+                navigate('/auth')
+              }}
+              className="bg-red-600 hover:bg-red-700 transition-colors duration-150 text-white border border-red-700 dark:bg-red-700 dark:hover:bg-red-600 dark:text-white dark:border-red-500 px-4 py-2 rounded-md text-sm font-medium"
+            >
+              Logout
+            </button>
             <button
               type="submit"
               disabled={loading}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+              className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
             >
               {loading ? 'Updating...' : 'Update Profile'}
             </button>
