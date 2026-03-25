@@ -166,13 +166,13 @@ async def delete_artifact(
     project_id: UUID,
     user: dict = Depends(get_current_user)
 ):
-    """Delete an artifact (project owner/admin only)"""
+    """Delete an artifact (project owner/admin/developer)"""
     try:
         ensure_project_role(
             supabase,
             project_id,
             user["user_id"],
-            ["owner", "admin"],
+            ["owner", "admin", "developer"],
         )
         artifact_row = artifact.get_artifact(supabase, artifact_id, project_id)
         if not artifact_row:

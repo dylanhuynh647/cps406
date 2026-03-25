@@ -42,12 +42,21 @@ def sanitize_url(url: str) -> str:
     
     url = url.strip()
     
+    lowered = url.lower()
+
+    # Explicitly reject dangerous URI schemes.
+    if lowered.startswith("javascript:") or lowered.startswith("data:"):
+        raise ValueError("Invalid URL format")
+
     # Basic URL validation - must start with http:// or https://
     if not (url.startswith("http://") or url.startswith("https://")):
         # If it's a relative path, allow it but sanitize
         if url.startswith("/"):
             # Relative path - sanitize path components
             url = re.sub(r'[^a-zA-Z0-9/._-]', '', url)
+            # Block traversal attempts in path-like references.
+            if '..' in url.split('/'):
+                raise ValueError("Invalid URL format")
         else:
             # Invalid URL format
             raise ValueError("Invalid URL format")

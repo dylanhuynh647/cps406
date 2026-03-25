@@ -1,7 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
+import { useEffect, useRef } from 'react'
 import { AuthProvider } from './contexts/AuthContext'
+import { useAuth } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Navbar } from './components/Navbar'
 import Auth from './pages/Auth'
@@ -15,6 +17,7 @@ import BugDetail from './pages/BugDetail'
 import BugNew from './pages/BugNew'
 import Inbox from './pages/Inbox'
 import { isSupabaseConfigured } from './lib/supabase'
+import { useQueryClient } from '@tanstack/react-query'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +51,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <AuthQueryCacheBridge />
         <Router>
           <div className="min-h-screen bg-gray-50">
             <Navbar />
@@ -135,6 +139,22 @@ function App() {
       </AuthProvider>
     </QueryClientProvider>
   )
+}
+
+const AuthQueryCacheBridge = () => {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+  const lastUserIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const currentUserId = user?.id ?? null
+    if (lastUserIdRef.current !== currentUserId) {
+      queryClient.clear()
+      lastUserIdRef.current = currentUserId
+    }
+  }, [queryClient, user?.id])
+
+  return null
 }
 
 export default App

@@ -161,6 +161,7 @@ class BugResponse(BaseModel):
     reporter_name: Optional[str] = None
     reporter_avatar_url: Optional[str] = None
     assigned_to: Optional[UUID]
+    phase_number: int = 1
     created_at: datetime
     updated_at: datetime
     artifact_count: int = 0

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
+import { GLOBAL_THEME_STORAGE_KEY, applyThemeClass, getThemeStorageKey, readBooleanFromStorage } from '../lib/theme'
 
 interface UserProfile {
   id: string
@@ -19,6 +20,9 @@ interface ProjectMembership {
   cover_image_url?: string | null
   owner_id: string
   my_role: 'owner' | 'admin' | 'developer' | 'reporter'
+  current_phase_number: number
+  current_phase_started_at: string
+  phase_auto_mode?: 'weekly' | 'biweekly' | 'monthly' | null
   created_at: string
   updated_at: string
 }
@@ -39,7 +43,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const getThemeStorageKey = (userId: string) => `user-theme:${userId}`
 const getProjectStorageKey = (userId: string) => `current-project:${userId}`
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -80,13 +83,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const fetchedProfile = response.data as UserProfile
-      const storedTheme = window.localStorage.getItem(getThemeStorageKey(fetchedProfile.id))
-      const hasStoredTheme = storedTheme === 'true' || storedTheme === 'false'
-      const resolvedDarkMode = hasStoredTheme
-        ? storedTheme === 'true'
+      const storedTheme = readBooleanFromStorage(getThemeStorageKey(fetchedProfile.id))
+      const resolvedDarkMode = storedTheme !== null
+        ? storedTheme
         : typeof fetchedProfile.dark_mode === 'boolean'
           ? fetchedProfile.dark_mode
           : false
+
+      window.localStorage.setItem(GLOBAL_THEME_STORAGE_KEY, String(resolvedDarkMode))
+      applyThemeClass(resolvedDarkMode)
 
       setProfile({
         ...fetchedProfile,
@@ -148,7 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     profileFetchTimeoutRef.current = window.setTimeout(() => {
       profileFetchTimeoutRef.current = null
       void fetchProfile()
-    }, 150)
+    }, 0)
   }
 
   const refreshProfile = async () => {
@@ -182,8 +187,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const userId = user.id
-    document.documentElement.classList.toggle('dark', enabled)
+    applyThemeClass(enabled)
     window.localStorage.setItem(getThemeStorageKey(userId), String(enabled))
+    window.localStorage.setItem(GLOBAL_THEME_STORAGE_KEY, String(enabled))
 
     setProfile((current) =>
       current
@@ -211,6 +217,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : current
       )
       window.localStorage.setItem(getThemeStorageKey(userId), String(resolvedDarkMode))
+      window.localStorage.setItem(GLOBAL_THEME_STORAGE_KEY, String(resolvedDarkMode))
+      applyThemeClass(resolvedDarkMode)
     } catch (error) {
       // Keep the optimistic preference so the user's selected theme does not flicker off.
       console.error('Failed to persist theme preference to backend:', error)
@@ -228,6 +236,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .then(({ data: { session } }) => {
         setUser(session?.user ?? null)
         if (session?.user) {
+          const userStoredTheme = readBooleanFromStorage(getThemeStorageKey(session.user.id))
+          if (userStoredTheme !== null) {
+            applyThemeClass(userStoredTheme)
+            window.localStorage.setItem(GLOBAL_THEME_STORAGE_KEY, String(userStoredTheme))
+          }
           scheduleProfileFetch()
           void fetchProjects(session.user.id)
         }
@@ -248,6 +261,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
+        const userStoredTheme = readBooleanFromStorage(getThemeStorageKey(session.user.id))
+        if (userStoredTheme !== null) {
+          applyThemeClass(userStoredTheme)
+          window.localStorage.setItem(GLOBAL_THEME_STORAGE_KEY, String(userStoredTheme))
+        }
         scheduleProfileFetch()
         void fetchProjects(session.user.id)
       } else {
@@ -272,7 +290,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', !!profile?.dark_mode)
+    if (typeof profile?.dark_mode === 'boolean') {
+      applyThemeClass(profile.dark_mode)
+      window.localStorage.setItem(GLOBAL_THEME_STORAGE_KEY, String(profile.dark_mode))
+    }
   }, [profile?.dark_mode])
 
   const signOut = async () => {
@@ -281,7 +302,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null)
     setProjects([])
     setCurrentProjectIdState(null)
-    document.documentElement.classList.remove('dark')
   }
 
   const currentProject = projects.find((project) => project.id === currentProjectId) || null

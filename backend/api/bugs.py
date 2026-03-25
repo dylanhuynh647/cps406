@@ -6,6 +6,7 @@ from backend.dependencies import get_current_user, ensure_project_role, get_proj
 from backend.schemas.bug import BugCreate, BugUpdate, BugResponse, BugSeverityUpdate
 from backend.crud import bug
 from backend.utils.audit_log import log_bug_created, log_bug_updated, log_bug_status_changed, log_bug_fixed, get_client_ip
+from backend.utils.phases import maybe_auto_advance_project_phase
 import logging
 
 logger = logging.getLogger(__name__)
@@ -127,11 +128,23 @@ async def create_bug(
                     detail="Bug assignee must be an owner, admin, or developer",
                 )
 
-        assigned_target = bug_data.assigned_to
-        create_payload = bug_data.model_copy(update={"assigned_to": None}) if assigned_target else bug_data
-        created = bug.create_bug(supabase, create_payload, UUID(user["user_id"]))
+        project_phase_state = maybe_auto_advance_project_phase(supabase, bug_data.project_id)
 
-        if assigned_target:
+        assigned_target = bug_data.assigned_to
+        is_self_assignment = bool(assigned_target) and str(assigned_target) == str(user["user_id"])
+        create_payload = (
+            bug_data
+            if (not assigned_target or is_self_assignment)
+            else bug_data.model_copy(update={"assigned_to": None})
+        )
+        created = bug.create_bug(
+            supabase,
+            create_payload,
+            UUID(user["user_id"]),
+            phase_number=int(project_phase_state.get("current_phase_number") or 1),
+        )
+
+        if assigned_target and not is_self_assignment:
             _create_assignment_invitation(
                 UUID(created["id"]),
                 bug_data.project_id,
@@ -173,6 +186,7 @@ async def list_bugs(
     artifact_type: Optional[List[str]] = Query(None),
     found_at_from: Optional[datetime] = Query(None),
     found_at_to: Optional[datetime] = Query(None),
+    include_archived_resolved: bool = Query(False),
     user: dict = Depends(get_current_user)
 ):
     """List all bugs with filtering"""
@@ -183,6 +197,11 @@ async def list_bugs(
             user["user_id"],
             ["owner", "admin", "developer", "reporter"],
         )
+        try:
+            project_phase_state = maybe_auto_advance_project_phase(supabase, project_id)
+        except Exception:
+            # Keep bug list available even if phase metadata is not ready.
+            project_phase_state = {"current_phase_number": 1}
         bugs_list = bug.get_bugs(
             supabase,
             project_id=project_id,
@@ -194,7 +213,9 @@ async def list_bugs(
             assigned_to=assigned_to,
             artifact_type=artifact_type,
             found_at_from=found_at_from,
-            found_at_to=found_at_to
+            found_at_to=found_at_to,
+            current_phase_number=int(project_phase_state.get("current_phase_number") or 1),
+            include_archived_resolved=include_archived_resolved,
         )
         return [BugResponse(**b) for b in bugs_list]
     except HTTPException:
@@ -278,7 +299,12 @@ async def update_bug(
         old_status = current_bug.get("status")
         
         incoming_assignee = bug_data.assigned_to
-        update_payload = bug_data.model_copy(update={"assigned_to": None}) if incoming_assignee else bug_data
+        is_self_assignment = bool(incoming_assignee) and str(incoming_assignee) == str(user["user_id"])
+        update_payload = (
+            bug_data
+            if (not incoming_assignee or is_self_assignment)
+            else bug_data.model_copy(update={"assigned_to": None})
+        )
 
         updated = bug.update_bug(supabase, bug_id, update_payload)
         if not updated:
@@ -287,7 +313,7 @@ async def update_bug(
                 detail="Bug not found"
             )
 
-        if incoming_assignee:
+        if incoming_assignee and not is_self_assignment:
             _create_assignment_invitation(
                 bug_id,
                 project_id,
@@ -391,13 +417,13 @@ async def delete_bug(
     project_id: UUID,
     user: dict = Depends(get_current_user)
 ):
-    """Delete a bug (admin only)"""
+    """Delete a bug (project owner/admin/developer)"""
     try:
         ensure_project_role(
             supabase,
             project_id,
             user["user_id"],
-            ["owner", "admin"],
+            ["owner", "admin", "developer"],
         )
         bug_row = bug.get_bug(supabase, bug_id, project_id)
         if not bug_row:

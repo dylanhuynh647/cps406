@@ -37,7 +37,7 @@ def _get_user_profile_map(db: Client, user_ids: List[str]) -> dict:
         }
     return profile_map
 
-def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID):
+def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID, phase_number: int = 1):
     """Create a new bug and its artifact relationships"""
     status_value = bug_data.status or "open"
 
@@ -49,10 +49,10 @@ def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID):
         "status": status_value,
         "severity": bug_data.severity or "medium",
         "reporter_id": str(reporter_id),
-        "assigned_to": str(bug_data.assigned_to) if bug_data.assigned_to else None
+        "assigned_to": str(bug_data.assigned_to) if bug_data.assigned_to else None,
+        "phase_number": max(1, int(phase_number or 1)),
     }
 
-    # Create bug
     try:
         bug_result = db.table("bugs").insert(create_payload).execute()
     except Exception as e:
@@ -62,21 +62,20 @@ def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID):
             bug_result = db.table("bugs").insert(create_payload).execute()
         else:
             raise
-    
+
     if not bug_result.data:
         raise Exception("Failed to create bug")
-    
+
     bug = bug_result.data[0]
     bug_id = bug["id"]
-    
-    # Create artifact relationships
+
     if bug_data.artifact_ids:
         artifact_relations = [
             {"bug_id": bug_id, "artifact_id": str(artifact_id)}
             for artifact_id in bug_data.artifact_ids
         ]
         db.table("bug_artifacts").insert(artifact_relations).execute()
-    
+
     bug["status"] = _normalize_status_for_response(bug.get("status"))
     return bug
 
@@ -117,11 +116,13 @@ def get_bugs(
     assigned_to: Optional[UUID] = None,
     artifact_type: Optional[List[str]] = None,
     found_at_from: Optional[datetime] = None,
-    found_at_to: Optional[datetime] = None
+    found_at_to: Optional[datetime] = None,
+    current_phase_number: int = 1,
+    include_archived_resolved: bool = False,
 ):
     """Get bugs with filtering"""
     query = db.table("bugs").select("*").eq("project_id", str(project_id))
-    
+
     if status:
         query = query.in_("status", status)
     if bug_type:
@@ -154,6 +155,26 @@ def get_bugs(
     
     result = query.order("created_at", desc=True).range(skip, skip + limit - 1).execute()
     bugs = result.data or []
+
+    if not include_archived_resolved:
+        active_phase = max(1, int(current_phase_number or 1))
+        filtered_bugs = []
+        for item in bugs:
+            normalized_status = _normalize_status_for_response(item.get("status"))
+            if normalized_status in ("open", "in_progress"):
+                filtered_bugs.append(item)
+                continue
+
+            phase_value = item.get("phase_number")
+            try:
+                bug_phase = int(phase_value) if phase_value is not None else None
+            except (TypeError, ValueError):
+                bug_phase = None
+
+            if bug_phase == active_phase:
+                filtered_bugs.append(item)
+
+        bugs = filtered_bugs
 
     bug_ids = [str(item.get("id")) for item in bugs if item.get("id")]
     artifact_count_map = {}
