@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.schemas.bug import BugCreate
+from backend.middleware.rate_limit import get_rate_limit_rule
 from backend.utils.security import sanitize_text, sanitize_url
 
 
@@ -69,3 +70,27 @@ def test_sanitize_url_rejects_path_traversal_segments():
 
 def test_sanitize_url_keeps_safe_relative_path():
     assert sanitize_url('/uploads/project-cover.png') == '/uploads/project-cover.png'
+
+
+def test_sanitize_text_escapes_sql_like_payload_markup():
+    payload = "<img src=x onerror=alert(1)> OR 1=1; DROP TABLE users;"
+    sanitized = sanitize_text(payload)
+    assert '<img' not in sanitized
+    assert '&lt;img' in sanitized
+    assert 'DROP TABLE users' in sanitized
+
+
+@pytest.mark.parametrize(
+    'path,method,expected_rule',
+    [
+        ('/api/projects', 'POST', 'projects-create'),
+        ('/api/projects/11111111-1111-1111-1111-111111111111/phases/advance', 'POST', 'phase-advance'),
+        ('/api/projects/11111111-1111-1111-1111-111111111111/member-invitations', 'POST', 'project-members-add'),
+        ('/api/bugs', 'POST', 'bugs-create'),
+        ('/api/bugs/11111111-1111-1111-1111-111111111111', 'DELETE', 'bugs-delete'),
+        ('/api/artifact-uploads', 'POST', 'artifacts-create'),
+    ],
+)
+def test_rate_limit_rule_selection(path, method, expected_rule):
+    rule = get_rate_limit_rule(path, method)
+    assert rule['id'] == expected_rule

@@ -34,33 +34,22 @@ async def supabase_auth_secure(
     import logging
     logger = logging.getLogger(__name__)
 
-    def _resolve_user_role(user_id: str, email: str) -> str:
-        """Best-effort role resolution with safe fallback."""
+    def _ensure_user_row(user_id: str, email: str) -> None:
+        """Best-effort user row bootstrap without global role fields."""
         try:
-            user_data = supabase.table("users").select("role").eq("id", user_id).single().execute()
-            if user_data and user_data.data:
-                return user_data.data.get("role", "reporter")
+            exists = supabase.table("users").select("id").eq("id", user_id).single().execute()
+            if exists and exists.data:
+                return
         except Exception as select_exc:
-            logger.warning(f"Initial role lookup failed for user {user_id}: {select_exc}")
+            logger.warning(f"Initial user bootstrap lookup failed for user {user_id}: {select_exc}")
 
-        # If user row doesn't exist yet, attempt to create it once.
         try:
             supabase.table("users").upsert({
                 "id": user_id,
                 "email": email,
-                "role": "reporter"
             }).execute()
         except Exception as upsert_exc:
-            logger.warning(f"Role bootstrap upsert failed for user {user_id}: {upsert_exc}")
-
-        try:
-            user_data = supabase.table("users").select("role").eq("id", user_id).single().execute()
-            if user_data and user_data.data:
-                return user_data.data.get("role", "reporter")
-        except Exception as retry_exc:
-            logger.warning(f"Role lookup retry failed for user {user_id}: {retry_exc}")
-
-        return "reporter"
+            logger.warning(f"User bootstrap upsert failed for user {user_id}: {upsert_exc}")
 
     try:
         # Verify token with Supabase
@@ -72,12 +61,13 @@ async def supabase_auth_secure(
             )
 
         user_id = user_response.user.id
-        user_role = _resolve_user_role(str(user_id), user_response.user.email)
+        _ensure_user_row(str(user_id), user_response.user.email)
 
         return {
             "user_id": user_id,
             "email": user_response.user.email,
-            "role": user_role
+            # Backward compatibility for any callers that still inspect user.role.
+            "role": "reporter",
         }
     except HTTPException:
         raise
@@ -92,6 +82,11 @@ async def supabase_auth_secure(
 def role_required(allowed_roles: list[str]):
     """Dependency factory for role-based access control"""
     def _role_checker(user: dict = Depends(supabase_auth_secure)):
+        if "role" not in user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Global user roles are disabled. Use project-level role checks.",
+            )
         if user["role"] not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

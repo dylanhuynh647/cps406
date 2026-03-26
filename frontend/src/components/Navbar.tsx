@@ -122,14 +122,6 @@ export const Navbar = () => {
                 >
                   Bugs
                 </Link>
-                {profile?.role === 'admin' && (
-                  <Link
-                    to="/admin"
-                    className={getTabClassName(isRouteActive('/admin'))}
-                  >
-                    Admin Panel
-                  </Link>
-                )}
               </div>
             )}
           </div>
@@ -223,9 +215,6 @@ export const Navbar = () => {
                 <Link to="/dashboard" className={getMobileTabClassName(isRouteActive('/dashboard'))}>Dashboard</Link>
                 <Link to="/artifacts" className={getMobileTabClassName(isRouteActive('/artifacts'))}>Artifacts</Link>
                 <Link to="/bugs" className={getMobileTabClassName(isRouteActive('/bugs'))}>Bugs</Link>
-                {profile?.role === 'admin' && (
-                  <Link to="/admin" className={getMobileTabClassName(isRouteActive('/admin'))}>Admin Panel</Link>
-                )}
                 <div className="flex items-center gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
                   <Link
                     to="/inbox"

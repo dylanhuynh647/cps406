@@ -20,4 +20,16 @@ describe('sanitize utilities', () => {
     const value = sanitizeForDisplay('hello <b>world</b>')
     expect(value).toBe('hello &lt;b&gt;world&lt;/b&gt;')
   })
+
+  it('escapes quotes and inline event handlers', () => {
+    const input = `<a href="#" onclick="alert('x')">link</a>`
+    const escaped = sanitizeForDisplay(input)
+
+    expect(escaped).toContain('&lt;a href="#" onclick="alert(\'x\')"&gt;link&lt;/a&gt;')
+    expect(escaped).not.toContain('<a')
+  })
+
+  it('returns empty string for empty input', () => {
+    expect(sanitizeForDisplay('')).toBe('')
+  })
 })

@@ -1,11 +1,9 @@
 from typing import List, Optional
 from uuid import UUID
-from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import base64
-import mimetypes
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
 from backend.dependencies import get_current_user, ensure_project_role, get_project_role, supabase
 from backend.schemas.project import (
@@ -21,7 +19,14 @@ from backend.schemas.project import (
 from backend.utils.phases import advance_project_phase, maybe_auto_advance_project_phase
 
 router = APIRouter()
-PROJECT_COVER_UPLOAD_ROOT = Path("backend") / "uploads" / "project_covers"
+PHASE_ADVANCE_COOLDOWN_SECONDS = 30
+
+
+def _parse_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _enrich_project_invitation_rows(rows: list[dict]) -> list[dict]:
@@ -256,6 +261,37 @@ async def advance_phase(
     user: dict = Depends(get_current_user),
 ):
     role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
+    current_phase_result = (
+        supabase.table("projects")
+        .select("current_phase_number")
+        .eq("id", str(project_id))
+        .single()
+        .execute()
+    )
+    if not current_phase_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    current_phase_number = int(current_phase_result.data.get("current_phase_number") or 1)
+    latest_manual_result = (
+        supabase.table("project_phases")
+        .select("started_at")
+        .eq("project_id", str(project_id))
+        .eq("phase_number", current_phase_number)
+        .eq("transition_type", "manual")
+        .order("started_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if latest_manual_result.data:
+        latest_manual_started = _parse_datetime(latest_manual_result.data[0]["started_at"])
+        cooldown_expires = latest_manual_started + timedelta(seconds=PHASE_ADVANCE_COOLDOWN_SECONDS)
+        remaining_seconds = int((cooldown_expires - datetime.now(timezone.utc)).total_seconds())
+        if remaining_seconds > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Phase advance is on cooldown. Try again in {remaining_seconds} second(s).",
+            )
+
     advance_project_phase(
         supabase,
         project_id,
@@ -273,6 +309,76 @@ async def advance_phase(
     if not project_result.data:
         raise HTTPException(status_code=404, detail="Project not found")
     return ProjectResponse(**_normalize_project_row(project_result.data, role))
+
+
+@router.post("/projects/{project_id}/phases/{phase_number}/rollback", response_model=ProjectResponse)
+async def rollback_phase(
+    project_id: UUID,
+    phase_number: int,
+    user: dict = Depends(get_current_user),
+):
+    role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
+
+    project_result = (
+        supabase.table("projects")
+        .select("id,current_phase_number")
+        .eq("id", str(project_id))
+        .single()
+        .execute()
+    )
+    if not project_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    current_phase_number = int(project_result.data.get("current_phase_number") or 1)
+    if phase_number < 1:
+        raise HTTPException(status_code=400, detail="Phase number must be 1 or greater")
+    if phase_number >= current_phase_number:
+        raise HTTPException(status_code=400, detail="Rollback target must be an earlier phase")
+
+    phase_exists = (
+        supabase.table("project_phases")
+        .select("id")
+        .eq("project_id", str(project_id))
+        .eq("phase_number", phase_number)
+        .limit(1)
+        .execute()
+    )
+    if not phase_exists.data:
+        raise HTTPException(status_code=404, detail="Target phase not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    supabase.table("project_phases").update(
+        {
+            "ended_at": now,
+            "transition_type": "manual",
+            "changed_by": str(user["user_id"]),
+        }
+    ).eq("project_id", str(project_id)).eq("phase_number", current_phase_number).is_("ended_at", "null").execute()
+
+    supabase.table("project_phases").update(
+        {
+            "started_at": now,
+            "ended_at": None,
+            "transition_type": "manual",
+            "changed_by": str(user["user_id"]),
+        }
+    ).eq("project_id", str(project_id)).eq("phase_number", phase_number).execute()
+
+    updated_project = (
+        supabase.table("projects")
+        .update(
+            {
+                "current_phase_number": phase_number,
+                "current_phase_started_at": now,
+            }
+        )
+        .eq("id", str(project_id))
+        .execute()
+    )
+    if not updated_project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return ProjectResponse(**_normalize_project_row(updated_project.data[0], role))
 
 
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -687,16 +793,4 @@ async def get_project_cover_image(
             },
         )
 
-    # Legacy filesystem fallback for older cover uploads.
-    files = [item for item in PROJECT_COVER_UPLOAD_ROOT.glob(f"{project_id}.*") if item.is_file()]
-    if not files:
-        raise HTTPException(status_code=404, detail="Cover image not found")
-
-    disk_path = files[0]
-    media_type = mimetypes.guess_type(str(disk_path))[0] or "application/octet-stream"
-    return FileResponse(
-        path=str(disk_path),
-        media_type=media_type,
-        filename=disk_path.name,
-        headers={"Cache-Control": "public, max-age=3600, stale-while-revalidate=86400"},
-    )
+    raise HTTPException(status_code=404, detail="Cover image not found")

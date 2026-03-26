@@ -73,6 +73,7 @@ export default function ArtifactNew() {
     },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['artifacts', currentProjectId] })
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       toast.success('Artifact created successfully!')
       navigate(`/artifacts/${response.data.id}`)
     },

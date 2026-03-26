@@ -1,5 +1,5 @@
 import { useAuth } from '../contexts/AuthContext'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
@@ -56,6 +56,7 @@ export default function Dashboard() {
     setCurrentProjectId,
     refreshProjects,
   } = useAuth()
+  const queryClient = useQueryClient()
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
   const [createCoverImageFile, setCreateCoverImageFile] = useState<File | null>(null)
@@ -266,10 +267,26 @@ export default function Dashboard() {
     onSuccess: async () => {
       await refreshProjects()
       await refetchPhases()
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       toast.success('Project phase advanced')
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Failed to advance phase')
+    },
+  })
+
+  const rollbackPhaseMutation = useMutation({
+    mutationFn: async (phaseNumber: number) => {
+      return api.post(`/projects/${currentProjectId}/phases/${phaseNumber}/rollback`)
+    },
+    onSuccess: async (_, phaseNumber) => {
+      await refreshProjects()
+      await refetchPhases()
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
+      toast.success(`Rolled back to phase #${phaseNumber}`)
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to roll back phase')
     },
   })
 
@@ -592,18 +609,50 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-600">
                       Resolved bugs from previous phases are hidden from active bug views.
                     </p>
+                    <p className="text-xs text-gray-600">
+                      Manual phase changes use a short cooldown to prevent accidental rapid updates.
+                    </p>
                   </div>
                 )}
 
                 {(projectPhases || []).length > 0 && (
                   <div className="mt-3 rounded-md border border-gray-200 p-2">
                     <p className="text-xs font-semibold text-gray-700 mb-1">Recent phases</p>
-                    <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                      {(projectPhases || []).slice(0, 6).map((phase) => (
-                        <p key={phase.id} className="text-xs text-gray-600">
-                          Phase #{phase.phase_number} • {phase.transition_type} • {formatMemberDate(phase.started_at)}
-                        </p>
-                      ))}
+                    <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                      {(projectPhases || []).map((phase) => {
+                        const canRollback = canManageMembers && !!currentProject && phase.phase_number < currentProject.current_phase_number
+
+                        if (!canRollback) {
+                          return (
+                            <p key={phase.id} className="text-xs text-gray-600">
+                              Phase #{phase.phase_number} • {phase.transition_type} • {formatMemberDate(phase.started_at)}
+                            </p>
+                          )
+                        }
+
+                        return (
+                          <button
+                            key={phase.id}
+                            type="button"
+                            onClick={() =>
+                              setConfirmDialog({
+                                title: 'Rollback Phase',
+                                message: `Roll back ${currentProject?.name} to phase #${phase.phase_number}?`,
+                                confirmLabel: 'Rollback',
+                                variant: 'danger',
+                                onConfirm: () => {
+                                  setConfirmDialog(null)
+                                  rollbackPhaseMutation.mutate(phase.phase_number)
+                                },
+                              })
+                            }
+                            className="w-full text-left text-xs text-indigo-700 hover:text-indigo-900"
+                            disabled={rollbackPhaseMutation.isPending}
+                          >
+                            Phase #{phase.phase_number} • {phase.transition_type} • {formatMemberDate(phase.started_at)}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

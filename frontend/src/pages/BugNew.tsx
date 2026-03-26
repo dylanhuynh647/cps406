@@ -2,7 +2,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import toast from 'react-hot-toast'
@@ -40,6 +40,7 @@ const formatSeverityLabel = (value: string) =>
 export default function BugNew() {
   const navigate = useNavigate()
   const { currentProject, currentProjectId } = useAuth()
+  const queryClient = useQueryClient()
 
   const {
     register,
@@ -83,6 +84,7 @@ export default function BugNew() {
       })
     },
     onSuccess: (response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
       if (variables.assigned_to) {
         toast.success('Bug created and assignment invite sent!')
       } else {

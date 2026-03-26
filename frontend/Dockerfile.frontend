@@ -9,9 +9,10 @@ COPY src/ ./src/
 COPY index.html ./
 COPY tsconfig.json tsconfig.node.json ./
 COPY tailwind.config.js postcss.config.js ./
+COPY vite.config.ts ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
 # Build frontend
 RUN npm run build

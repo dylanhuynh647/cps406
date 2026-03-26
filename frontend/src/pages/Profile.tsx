@@ -188,18 +188,6 @@ export default function Profile() {
           </div>
 
           <div>
-            <label htmlFor="role" className="block text-sm font-medium text-gray-700">
-              Role (read-only)
-            </label>
-            <input
-              type="text"
-              value={profile?.role || ''}
-              disabled
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-gray-50 rounded-md text-gray-500 sm:text-sm"
-            />
-          </div>
-
-          <div>
             <label htmlFor="full_name" className="block text-sm font-medium text-gray-700">
               Full Name
             </label>

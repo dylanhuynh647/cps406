@@ -7,7 +7,6 @@ import { GLOBAL_THEME_STORAGE_KEY, applyThemeClass, getThemeStorageKey, readBool
 interface UserProfile {
   id: string
   email: string
-  role: 'reporter' | 'developer' | 'admin'
   full_name: string | null
   avatar_url: string | null
   dark_mode?: boolean | null

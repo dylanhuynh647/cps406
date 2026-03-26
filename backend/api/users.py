@@ -14,7 +14,7 @@ class UserUpdate(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
-    role: str
+    role: Optional[str] = None
     full_name: Optional[str]
     avatar_url: Optional[str]
     dark_mode: Optional[bool] = False
@@ -38,7 +38,6 @@ def _get_or_create_user_row(user_id: str, email: str):
         supabase.table("users").upsert({
             "id": user_id,
             "email": email,
-            "role": "reporter",
         }).execute()
     except Exception:
         # If another request created the row concurrently, read retry below will pick it up.
@@ -62,6 +61,9 @@ async def get_current_user_profile(user: dict = Depends(get_current_user)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found"
         )
+
+    if "role" not in profile_row:
+        profile_row = {**profile_row, "role": None}
 
     return UserResponse(**profile_row)
 
@@ -88,6 +90,9 @@ async def update_current_user_profile(
             detail="User profile not found"
         )
 
+    if "role" not in profile_row:
+        profile_row = {**profile_row, "role": None}
+
     if not update_data:
         return UserResponse(**profile_row)
 
@@ -98,8 +103,11 @@ async def update_current_user_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found"
         )
-    
-    return UserResponse(**result.data[0])
+
+    row = result.data[0]
+    if "role" not in row:
+        row = {**row, "role": None}
+    return UserResponse(**row)
 
 @router.get("/users")
 async def list_all_users(user: dict = Depends(role_required(["admin"]))):
@@ -185,4 +193,4 @@ async def admin_only_endpoint(user: dict = Depends(role_required(["admin"]))):
 @router.get("/developer-or-admin")
 async def developer_or_admin_endpoint(user: dict = Depends(role_required(["developer", "admin"]))):
     """Developer or Admin endpoint example"""
-    return {"message": f"Welcome, {user['role']} {user['email']}! This is developer/admin data."}
+    return {"message": f"Welcome, {user['email']}! This is developer/admin data."}

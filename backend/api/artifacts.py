@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, U
 from fastapi.responses import Response
 from uuid import UUID
 from typing import Optional
-from pathlib import Path
 from datetime import datetime
 import base64
 import mimetypes
@@ -26,13 +25,6 @@ def _decode_artifact_file_content(artifact_row: dict) -> bytes:
     encoded = artifact_row.get("file_data_base64")
     if encoded:
         return base64.b64decode(encoded)
-
-    # Fallback for legacy rows that still point to old filesystem storage.
-    file_path = artifact_row.get("file_path")
-    if file_path:
-        disk_path = Path(file_path)
-        if disk_path.exists() and disk_path.is_file():
-            return disk_path.read_bytes()
 
     raise HTTPException(status_code=404, detail="File not found")
 

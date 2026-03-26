@@ -16,4 +16,10 @@ describe('LoadingPulse', () => {
     expect(container.firstChild).toHaveClass('items-center')
     expect(container.firstChild).toHaveClass('justify-center')
   })
+
+  it('uses inline container by default', () => {
+    const { container } = render(<LoadingPulse label="Inline loading" />)
+    expect(screen.getByText('Inline loading')).toBeInTheDocument()
+    expect(container.firstChild).not.toHaveClass('min-h-screen')
+  })
 })
