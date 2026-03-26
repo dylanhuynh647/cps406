@@ -53,18 +53,34 @@ pip install -r requirements.txt
 
 ### 3. Environment Variables
 
-Create `.env` file in the root directory:
+Create local environment files from the templates:
+
+```bash
+# From repository root
+copy .env.example .env
+copy backend\.env.example backend\.env
+```
+
+Then edit local values.
+
+Root `.env`:
 
 ```env
-# Frontend (.env)
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 VITE_API_URL=http://localhost:8000
+```
 
-# Backend (.env in backend/ directory)
+`backend/.env`:
+
+```env
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+TRUSTED_PROXY_IPS=127.0.0.1,::1
 ```
+
+Never commit real keys in `.env` files. The repository ignores these files by default.
 
 ### 4. Run the Application
 
@@ -144,3 +160,13 @@ cps406/
 ## License
 
 MIT
+
+## Security Notes
+
+- Treat `SUPABASE_SERVICE_ROLE_KEY` as highly sensitive. If exposed, rotate immediately in Supabase.
+- `VITE_SUPABASE_ANON_KEY` is public by design, but should still be managed through environment files, not hardcoded in source.
+- If a key leak is suspected:
+	1. Rotate exposed keys in Supabase.
+	2. Replace local `.env` values.
+	3. Confirm no secrets appear in tracked files with `git grep`.
+	4. If secrets were ever committed, rewrite git history before publishing.

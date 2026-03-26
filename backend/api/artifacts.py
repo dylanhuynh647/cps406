@@ -5,6 +5,7 @@ from typing import Optional
 from datetime import datetime
 import base64
 import mimetypes
+from pathlib import Path
 from backend.dependencies import get_current_user, ensure_project_role, supabase
 from backend.schemas.artifact import ArtifactCreate, ArtifactUpdate, ArtifactResponse
 from backend.crud import artifact
@@ -13,12 +14,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+MAX_ARTIFACT_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 def _can_preview(mime_type: Optional[str]) -> bool:
     if not mime_type:
         return False
-    return mime_type.startswith("image/") or mime_type.startswith("text/") or mime_type == "application/pdf"
+    if mime_type == "application/pdf" or mime_type == "text/plain":
+        return True
+    if mime_type.startswith("image/") and mime_type != "image/svg+xml":
+        return True
+    return False
 
 
 def _decode_artifact_file_content(artifact_row: dict) -> bytes:
@@ -81,9 +87,10 @@ async def list_artifacts(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error listing artifacts: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to list artifacts"
         )
 
 @router.get("/artifacts/{artifact_id}", response_model=ArtifactResponse)
@@ -110,9 +117,10 @@ async def get_artifact(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error fetching artifact: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to fetch artifact"
         )
 
 @router.patch("/artifacts/{artifact_id}", response_model=ArtifactResponse)
@@ -147,9 +155,10 @@ async def update_artifact(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error updating artifact: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to update artifact"
         )
 
 @router.delete("/artifacts/{artifact_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -177,9 +186,10 @@ async def delete_artifact(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error deleting artifact: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to delete artifact"
         )
 
 
@@ -234,6 +244,8 @@ async def upload_artifact_file(
     extension = Path(file.filename or "").suffix
     file_name = file.filename or f"artifact-{artifact_id}{extension}"
     file_bytes = await file.read()
+    if len(file_bytes) > MAX_ARTIFACT_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Artifact file exceeds 10 MB limit")
     file_size = len(file_bytes)
     file_data_base64 = base64.b64encode(file_bytes).decode("ascii")
     mime_type = file.content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
@@ -282,6 +294,8 @@ async def replace_artifact_file(
     extension = Path(file.filename or "").suffix
     file_name = file.filename or f"artifact-{artifact_id}{extension}"
     file_bytes = await file.read()
+    if len(file_bytes) > MAX_ARTIFACT_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Artifact file exceeds 10 MB limit")
     file_size = len(file_bytes)
     file_data_base64 = base64.b64encode(file_bytes).decode("ascii")
     mime_type = file.content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
@@ -346,7 +360,10 @@ async def download_artifact_file(
     return Response(
         content=file_bytes,
         media_type=mime_type,
-        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{file_name}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -379,5 +396,8 @@ async def preview_artifact_file(
     return Response(
         content=file_bytes,
         media_type=mime_type,
-        headers={"Content-Disposition": f'inline; filename="{file_name}"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{file_name}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )

@@ -1,7 +1,8 @@
 import { useAuth } from '../contexts/AuthContext'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { LoadingPulse } from '../components/LoadingPulse'
 
@@ -81,6 +82,8 @@ export default function Dashboard() {
   const [managedMember, setManagedMember] = useState<ProjectMember | null>(null)
   const [managedMemberRole, setManagedMemberRole] = useState<'admin' | 'developer' | 'reporter'>('developer')
   const [phaseAutoMode, setPhaseAutoMode] = useState<'none' | 'weekly' | 'biweekly' | 'monthly'>('none')
+  const [projectCoverUrls, setProjectCoverUrls] = useState<Record<string, string>>({})
+  const projectCoverUrlsRef = useRef<Record<string, string>>({})
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string
     message: string
@@ -290,6 +293,21 @@ export default function Dashboard() {
     },
   })
 
+  const rollforwardPhaseMutation = useMutation({
+    mutationFn: async (phaseNumber: number) => {
+      return api.post(`/projects/${currentProjectId}/phases/${phaseNumber}/rollforward`)
+    },
+    onSuccess: async (_, phaseNumber) => {
+      await refreshProjects()
+      await refetchPhases()
+      queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
+      toast.success(`Rolled forward to phase #${phaseNumber}`)
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to roll forward phase')
+    },
+  })
+
   const updatePhaseSettingsMutation = useMutation({
     mutationFn: async (mode: 'none' | 'weekly' | 'biweekly' | 'monthly') => {
       return api.patch(`/projects/${currentProjectId}/phase-settings`, {
@@ -385,7 +403,9 @@ export default function Dashboard() {
     ? currentDescription
     : `${currentDescription.slice(0, 180)}...`
 
-  const editedCoverPreview = editCoverImageFile ? URL.createObjectURL(editCoverImageFile) : (currentProject?.cover_image_url ? `${api.defaults.baseURL}/projects/${currentProject.id}/cover-image` : null)
+  const editedCoverPreview = editCoverImageFile
+    ? URL.createObjectURL(editCoverImageFile)
+    : (currentProject?.cover_image_url ? (projectCoverUrls[currentProject.id] || null) : null)
 
   const createCoverPreview = createCoverImageFile ? URL.createObjectURL(createCoverImageFile) : null
 
@@ -457,6 +477,69 @@ export default function Dashboard() {
     setManagedMemberRole(refreshedMember.role)
   }, [managedMember?.user_id, members])
 
+  useEffect(() => {
+    let isActive = true
+
+    const loadProjectCoverImages = async () => {
+      const projectsWithCover = projects.filter((project) => !!project.cover_image_url)
+      if (projectsWithCover.length === 0) {
+        Object.values(projectCoverUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
+        projectCoverUrlsRef.current = {}
+        setProjectCoverUrls({})
+        return
+      }
+
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) {
+        Object.values(projectCoverUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
+        projectCoverUrlsRef.current = {}
+        setProjectCoverUrls({})
+        return
+      }
+
+      const nextCoverUrls: Record<string, string> = {}
+      for (const project of projectsWithCover) {
+        try {
+          const response = await fetch(`${api.defaults.baseURL}/projects/${project.id}/cover-image`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          })
+          if (!response.ok) {
+            continue
+          }
+          const blob = await response.blob()
+          nextCoverUrls[project.id] = URL.createObjectURL(blob)
+        } catch {
+          // Keep rendering even if one cover image fails.
+        }
+      }
+
+      if (!isActive) {
+        Object.values(nextCoverUrls).forEach((url) => URL.revokeObjectURL(url))
+        return
+      }
+
+      Object.values(projectCoverUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
+      projectCoverUrlsRef.current = nextCoverUrls
+      setProjectCoverUrls(nextCoverUrls)
+    }
+
+    void loadProjectCoverImages()
+
+    return () => {
+      isActive = false
+    }
+  }, [projects])
+
+  useEffect(() => {
+    return () => {
+      Object.values(projectCoverUrlsRef.current).forEach((url) => URL.revokeObjectURL(url))
+      projectCoverUrlsRef.current = {}
+    }
+  }, [])
+
   if (loading) {
     return <LoadingPulse fullscreen label="Loading project hub" />
   }
@@ -511,9 +594,9 @@ export default function Dashboard() {
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      {project.cover_image_url ? (
+                      {project.cover_image_url && projectCoverUrls[project.id] ? (
                         <img
-                          src={`${api.defaults.baseURL}/projects/${project.id}/cover-image`}
+                          src={projectCoverUrls[project.id]}
                           alt={`${project.name} icon`}
                           className="h-7 w-7 rounded object-cover border border-gray-200"
                           loading="eager"
@@ -555,9 +638,9 @@ export default function Dashboard() {
             </div>
             {currentProject ? (
               <>
-                {currentProject.cover_image_url && (
+                {currentProject.cover_image_url && projectCoverUrls[currentProject.id] && (
                   <img
-                    src={`${api.defaults.baseURL}/projects/${currentProject.id}/cover-image`}
+                    src={projectCoverUrls[currentProject.id]}
                     alt={`${currentProject.name} cover`}
                     className="mb-3 h-28 w-full object-cover rounded-md border border-gray-200"
                     loading="eager"
@@ -621,8 +704,9 @@ export default function Dashboard() {
                     <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
                       {(projectPhases || []).map((phase) => {
                         const canRollback = canManageMembers && !!currentProject && phase.phase_number < currentProject.current_phase_number
+                        const canRollforward = canManageMembers && !!currentProject && phase.phase_number > currentProject.current_phase_number
 
-                        if (!canRollback) {
+                        if (!canRollback && !canRollforward) {
                           return (
                             <p key={phase.id} className="text-xs text-gray-600">
                               Phase #{phase.phase_number} • {phase.transition_type} • {formatMemberDate(phase.started_at)}
@@ -630,24 +714,36 @@ export default function Dashboard() {
                           )
                         }
 
+                        const isRollbackAction = canRollback
+
                         return (
                           <button
                             key={phase.id}
                             type="button"
                             onClick={() =>
                               setConfirmDialog({
-                                title: 'Rollback Phase',
-                                message: `Roll back ${currentProject?.name} to phase #${phase.phase_number}?`,
-                                confirmLabel: 'Rollback',
-                                variant: 'danger',
+                                title: isRollbackAction ? 'Rollback Phase' : 'Roll Forward Phase',
+                                message: isRollbackAction
+                                  ? `Roll back ${currentProject?.name} to phase #${phase.phase_number}?`
+                                  : `Roll forward ${currentProject?.name} to phase #${phase.phase_number}?`,
+                                confirmLabel: isRollbackAction ? 'Rollback' : 'Roll forward',
+                                variant: isRollbackAction ? 'danger' : 'primary',
                                 onConfirm: () => {
                                   setConfirmDialog(null)
-                                  rollbackPhaseMutation.mutate(phase.phase_number)
+                                  if (isRollbackAction) {
+                                    rollbackPhaseMutation.mutate(phase.phase_number)
+                                    return
+                                  }
+                                  rollforwardPhaseMutation.mutate(phase.phase_number)
                                 },
                               })
                             }
-                            className="w-full text-left text-xs text-indigo-700 hover:text-indigo-900"
-                            disabled={rollbackPhaseMutation.isPending}
+                            className={`w-full text-left text-xs ${
+                              isRollbackAction
+                                ? 'text-amber-700 hover:text-amber-900'
+                                : 'text-blue-700 hover:text-blue-900'
+                            }`}
+                            disabled={rollbackPhaseMutation.isPending || rollforwardPhaseMutation.isPending}
                           >
                             Phase #{phase.phase_number} • {phase.transition_type} • {formatMemberDate(phase.started_at)}
                           </button>

@@ -20,6 +20,13 @@ from backend.utils.phases import advance_project_phase, maybe_auto_advance_proje
 
 router = APIRouter()
 PHASE_ADVANCE_COOLDOWN_SECONDS = 30
+MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024
+ALLOWED_PROJECT_COVER_MIME_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+}
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -87,6 +94,78 @@ def _normalize_project_row(row: dict, my_role: str) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def _set_project_phase(
+    project_id: UUID,
+    target_phase_number: int,
+    user_id: UUID | str,
+    *,
+    direction: str,
+) -> dict:
+    project_result = (
+        supabase.table("projects")
+        .select("id,current_phase_number")
+        .eq("id", str(project_id))
+        .single()
+        .execute()
+    )
+    if not project_result.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    current_phase_number = int(project_result.data.get("current_phase_number") or 1)
+    if target_phase_number < 1:
+        raise HTTPException(status_code=400, detail="Phase number must be 1 or greater")
+
+    if direction == "rollback" and target_phase_number >= current_phase_number:
+        raise HTTPException(status_code=400, detail="Rollback target must be an earlier phase")
+    if direction == "rollforward" and target_phase_number <= current_phase_number:
+        raise HTTPException(status_code=400, detail="Rollforward target must be a later phase")
+
+    phase_exists = (
+        supabase.table("project_phases")
+        .select("id")
+        .eq("project_id", str(project_id))
+        .eq("phase_number", target_phase_number)
+        .limit(1)
+        .execute()
+    )
+    if not phase_exists.data:
+        raise HTTPException(status_code=404, detail="Target phase not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    supabase.table("project_phases").update(
+        {
+            "ended_at": now,
+            "transition_type": "manual",
+            "changed_by": str(user_id),
+        }
+    ).eq("project_id", str(project_id)).eq("phase_number", current_phase_number).is_("ended_at", "null").execute()
+
+    supabase.table("project_phases").update(
+        {
+            "started_at": now,
+            "ended_at": None,
+            "transition_type": "manual",
+            "changed_by": str(user_id),
+        }
+    ).eq("project_id", str(project_id)).eq("phase_number", target_phase_number).execute()
+
+    updated_project = (
+        supabase.table("projects")
+        .update(
+            {
+                "current_phase_number": target_phase_number,
+                "current_phase_started_at": now,
+            }
+        )
+        .eq("id", str(project_id))
+        .execute()
+    )
+    if not updated_project.data:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return updated_project.data[0]
 
 
 @router.get("/projects", response_model=List[ProjectResponse])
@@ -319,66 +398,30 @@ async def rollback_phase(
 ):
     role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
 
-    project_result = (
-        supabase.table("projects")
-        .select("id,current_phase_number")
-        .eq("id", str(project_id))
-        .single()
-        .execute()
+    updated_project = _set_project_phase(
+        project_id,
+        phase_number,
+        user["user_id"],
+        direction="rollback",
     )
-    if not project_result.data:
-        raise HTTPException(status_code=404, detail="Project not found")
+    return ProjectResponse(**_normalize_project_row(updated_project, role))
 
-    current_phase_number = int(project_result.data.get("current_phase_number") or 1)
-    if phase_number < 1:
-        raise HTTPException(status_code=400, detail="Phase number must be 1 or greater")
-    if phase_number >= current_phase_number:
-        raise HTTPException(status_code=400, detail="Rollback target must be an earlier phase")
 
-    phase_exists = (
-        supabase.table("project_phases")
-        .select("id")
-        .eq("project_id", str(project_id))
-        .eq("phase_number", phase_number)
-        .limit(1)
-        .execute()
+@router.post("/projects/{project_id}/phases/{phase_number}/rollforward", response_model=ProjectResponse)
+async def rollforward_phase(
+    project_id: UUID,
+    phase_number: int,
+    user: dict = Depends(get_current_user),
+):
+    role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
+
+    updated_project = _set_project_phase(
+        project_id,
+        phase_number,
+        user["user_id"],
+        direction="rollforward",
     )
-    if not phase_exists.data:
-        raise HTTPException(status_code=404, detail="Target phase not found")
-
-    now = datetime.now(timezone.utc).isoformat()
-    supabase.table("project_phases").update(
-        {
-            "ended_at": now,
-            "transition_type": "manual",
-            "changed_by": str(user["user_id"]),
-        }
-    ).eq("project_id", str(project_id)).eq("phase_number", current_phase_number).is_("ended_at", "null").execute()
-
-    supabase.table("project_phases").update(
-        {
-            "started_at": now,
-            "ended_at": None,
-            "transition_type": "manual",
-            "changed_by": str(user["user_id"]),
-        }
-    ).eq("project_id", str(project_id)).eq("phase_number", phase_number).execute()
-
-    updated_project = (
-        supabase.table("projects")
-        .update(
-            {
-                "current_phase_number": phase_number,
-                "current_phase_started_at": now,
-            }
-        )
-        .eq("id", str(project_id))
-        .execute()
-    )
-    if not updated_project.data:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    return ProjectResponse(**_normalize_project_row(updated_project.data[0], role))
+    return ProjectResponse(**_normalize_project_row(updated_project, role))
 
 
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -737,12 +780,14 @@ async def upload_project_cover_image(
     role = ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin"])
 
     content_type = (file.content_type or "").lower()
-    if not content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Project cover must be an image file")
+    if content_type not in ALLOWED_PROJECT_COVER_MIME_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported cover image type")
 
     file_bytes = await file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Project cover image cannot be empty")
+    if len(file_bytes) > MAX_PROJECT_COVER_BYTES:
+        raise HTTPException(status_code=413, detail="Project cover image exceeds 5 MB limit")
     encoded_cover = base64.b64encode(file_bytes).decode("ascii")
 
     cover_url = f"/api/projects/{project_id}/cover-image"
@@ -768,7 +813,10 @@ async def upload_project_cover_image(
 @router.get("/projects/{project_id}/cover-image")
 async def get_project_cover_image(
     project_id: UUID,
+    user: dict = Depends(get_current_user),
 ):
+    ensure_project_role(supabase, project_id, user["user_id"], ["owner", "admin", "developer", "reporter"])
+
     project_result = (
         supabase.table("projects")
         .select("cover_image_data_base64,cover_image_mime_type")
@@ -790,6 +838,7 @@ async def get_project_cover_image(
             headers={
                 "Content-Disposition": f'inline; filename="project-{project_id}-cover"',
                 "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+                "X-Content-Type-Options": "nosniff",
             },
         )
 

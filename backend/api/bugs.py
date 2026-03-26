@@ -250,9 +250,10 @@ async def get_bug(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error fetching bug: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to fetch bug"
         )
 
 @router.patch("/bugs/{bug_id}", response_model=BugResponse)
@@ -436,9 +437,10 @@ async def delete_bug(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error deleting bug: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to delete bug"
         )
 
 

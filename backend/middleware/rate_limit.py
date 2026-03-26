@@ -5,8 +5,13 @@ from collections import defaultdict
 from typing import Dict
 import time
 import re
+import os
+import hashlib
 
 rate_limit_store: Dict[str, Dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+TRUSTED_PROXY_IPS = {
+    ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1").split(",") if ip.strip()
+}
 
 RATE_LIMIT_RULES = [
     {
@@ -59,6 +64,13 @@ RATE_LIMIT_RULES = [
         "window": 30,
     },
     {
+        "id": "phase-transition",
+        "pattern": re.compile(r"^/api/projects/[0-9a-fA-F-]+/phases/[0-9]+/(rollback|rollforward)$"),
+        "methods": {"POST"},
+        "requests": 3,
+        "window": 30,
+    },
+    {
         "id": "bugs-create",
         "pattern": re.compile(r"^/api/bugs$"),
         "methods": {"POST"},
@@ -106,12 +118,21 @@ def get_rate_limit_rule(path: str, method: str) -> dict:
 
 def get_client_identifier(request: Request) -> str:
     """Get client identifier for rate limiting"""
-    # Use IP address for rate limiting
-    # In production, consider using user ID for authenticated requests
+    client_host = request.client.host if request.client else "unknown"
+
+    # Only trust X-Forwarded-For when the direct peer is a known proxy.
     forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    if forwarded and client_host in TRUSTED_PROXY_IPS:
+        client_host = forwarded.split(",")[0].strip() or client_host
+
+    auth_header = request.headers.get("Authorization", "")
+    token_fingerprint = "anon"
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            token_fingerprint = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+
+    return f"{client_host}:{token_fingerprint}"
 
 async def rate_limit_middleware(request: Request, call_next):
     """Rate limiting middleware"""

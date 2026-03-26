@@ -1,12 +1,13 @@
 """Security-oriented unit tests that avoid network/testclient dependencies."""
 
 from uuid import uuid4
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from backend.schemas.bug import BugCreate
-from backend.middleware.rate_limit import get_rate_limit_rule
+from backend.middleware.rate_limit import get_rate_limit_rule, get_client_identifier
 from backend.utils.security import sanitize_text, sanitize_url
 
 
@@ -85,6 +86,8 @@ def test_sanitize_text_escapes_sql_like_payload_markup():
     [
         ('/api/projects', 'POST', 'projects-create'),
         ('/api/projects/11111111-1111-1111-1111-111111111111/phases/advance', 'POST', 'phase-advance'),
+        ('/api/projects/11111111-1111-1111-1111-111111111111/phases/2/rollback', 'POST', 'phase-transition'),
+        ('/api/projects/11111111-1111-1111-1111-111111111111/phases/4/rollforward', 'POST', 'phase-transition'),
         ('/api/projects/11111111-1111-1111-1111-111111111111/member-invitations', 'POST', 'project-members-add'),
         ('/api/bugs', 'POST', 'bugs-create'),
         ('/api/bugs/11111111-1111-1111-1111-111111111111', 'DELETE', 'bugs-delete'),
@@ -94,3 +97,36 @@ def test_sanitize_text_escapes_sql_like_payload_markup():
 def test_rate_limit_rule_selection(path, method, expected_rule):
     rule = get_rate_limit_rule(path, method)
     assert rule['id'] == expected_rule
+
+
+def test_client_identifier_uses_direct_host_when_proxy_untrusted():
+    request = SimpleNamespace(
+        headers={"X-Forwarded-For": "203.0.113.10", "Authorization": "Bearer token-a"},
+        client=SimpleNamespace(host="198.51.100.1"),
+    )
+
+    identifier = get_client_identifier(request)
+    assert identifier.startswith("198.51.100.1:")
+
+
+def test_client_identifier_uses_forwarded_ip_for_trusted_proxy():
+    request = SimpleNamespace(
+        headers={"X-Forwarded-For": "203.0.113.10", "Authorization": "Bearer token-a"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    identifier = get_client_identifier(request)
+    assert identifier.startswith("203.0.113.10:")
+
+
+def test_client_identifier_distinguishes_authenticated_tokens():
+    request_a = SimpleNamespace(
+        headers={"Authorization": "Bearer token-a"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+    request_b = SimpleNamespace(
+        headers={"Authorization": "Bearer token-b"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    assert get_client_identifier(request_a) != get_client_identifier(request_b)

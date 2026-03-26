@@ -26,7 +26,15 @@ pip install -r requirements.txt
 
 ### 3. Environment Variables
 
-Create `.env` in the root directory:
+Create local environment files from templates:
+
+```bash
+# Run from repository root
+copy .env.example .env
+copy backend\.env.example backend\.env
+```
+
+Edit root `.env`:
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
@@ -34,12 +42,18 @@ VITE_SUPABASE_ANON_KEY=your_anon_key
 VITE_API_URL=http://localhost:8000
 ```
 
-Create `.env` in the `backend/` directory:
+Edit `backend/.env`:
 
 ```env
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+TRUSTED_PROXY_IPS=127.0.0.1,::1
 ```
+
+Important:
+- Keep `.env` files local only.
+- Do not commit real keys.
 
 ### 4. Run the Application
 
@@ -95,6 +109,15 @@ If you see import errors, make sure you're running from the `backend/` directory
 - Verify your environment variables are correct
 - Check that RLS policies are set up correctly
 - Ensure the `get_user_role` function exists
+
+### Suspected Key Leak
+
+If you think keys were exposed:
+1. Rotate `SUPABASE_SERVICE_ROLE_KEY` in Supabase immediately.
+2. Rotate other affected keys/tokens.
+3. Update local `.env` files with new values.
+4. Verify tracked files are clean with `git grep`.
+5. If a secret was committed in the past, rewrite history before publishing.
 
 
 ### Realtime Not Working
