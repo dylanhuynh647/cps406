@@ -1,23 +1,25 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { LoadingPulse } from './components/LoadingPulse'
 import { Navbar } from './components/Navbar'
-import Auth from './pages/Auth'
-import Dashboard from './pages/Dashboard'
-import Profile from './pages/Profile'
-import Artifacts from './pages/Artifacts'
-import ArtifactDetail from './pages/ArtifactDetail'
-import ArtifactNew from './pages/ArtifactNew'
-import Bugs from './pages/Bugs'
-import BugDetail from './pages/BugDetail'
-import BugNew from './pages/BugNew'
-import Inbox from './pages/Inbox'
 import { isSupabaseConfigured } from './lib/supabase'
 import { useQueryClient } from '@tanstack/react-query'
+
+const Auth = lazy(() => import('./pages/Auth'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Artifacts = lazy(() => import('./pages/Artifacts'))
+const ArtifactDetail = lazy(() => import('./pages/ArtifactDetail'))
+const ArtifactNew = lazy(() => import('./pages/ArtifactNew'))
+const Bugs = lazy(() => import('./pages/Bugs'))
+const BugDetail = lazy(() => import('./pages/BugDetail'))
+const BugNew = lazy(() => import('./pages/BugNew'))
+const Inbox = lazy(() => import('./pages/Inbox'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,82 +58,84 @@ function App() {
           <div className="min-h-screen bg-gray-50">
             <Navbar />
             <main className="pt-16">
-              <Routes>
-                <Route path="/auth" element={<Auth />} />
-                <Route
-                  path="/dashboard"
-                  element={
-                    <ProtectedRoute>
-                      <Dashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/profile"
-                  element={
-                    <ProtectedRoute>
-                      <Profile />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/artifacts"
-                  element={
-                    <ProtectedRoute>
-                      <Artifacts />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/artifacts/new"
-                  element={
-                    <ProtectedRoute>
-                      <ArtifactNew />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/artifacts/:id"
-                  element={
-                    <ProtectedRoute>
-                      <ArtifactDetail />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/bugs"
-                  element={
-                    <ProtectedRoute>
-                      <Bugs />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/bugs/new"
-                  element={
-                    <ProtectedRoute>
-                      <BugNew />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/bugs/:id"
-                  element={
-                    <ProtectedRoute>
-                      <BugDetail />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/inbox"
-                  element={
-                    <ProtectedRoute>
-                      <Inbox />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              </Routes>
+              <Suspense fallback={<LoadingPulse fullscreen label="Loading page" />}>
+                <Routes>
+                  <Route path="/auth" element={<Auth />} />
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <ProtectedRoute>
+                        <Dashboard />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/profile"
+                    element={
+                      <ProtectedRoute>
+                        <Profile />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/artifacts"
+                    element={
+                      <ProtectedRoute>
+                        <Artifacts />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/artifacts/new"
+                    element={
+                      <ProtectedRoute>
+                        <ArtifactNew />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/artifacts/:id"
+                    element={
+                      <ProtectedRoute>
+                        <ArtifactDetail />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/bugs"
+                    element={
+                      <ProtectedRoute>
+                        <Bugs />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/bugs/new"
+                    element={
+                      <ProtectedRoute>
+                        <BugNew />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/bugs/:id"
+                    element={
+                      <ProtectedRoute>
+                        <BugDetail />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/inbox"
+                    element={
+                      <ProtectedRoute>
+                        <Inbox />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </Suspense>
             </main>
             <Toaster position="top-right" />
           </div>

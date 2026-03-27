@@ -16,10 +16,12 @@ pip install -r requirements.txt
 ### 2. Supabase Setup
 
 1. Create a Supabase project at https://supabase.com
-2. Go to SQL Editor and run the migration: `database/migrations/001_initial_schema.sql`
+2. Go to SQL Editor and run [database/migrations/ALL_MIGRATIONS.sql](database/migrations/ALL_MIGRATIONS.sql)
+   - This is intended for clean bootstrap environments.
+   - For environments already using incremental migrations, continue applying ordered migration files.
 3. Enable Realtime:
    - Go to Database > Replication
-   - Enable replication for the `bugs` table
+   - Enable replication for the bugs and bug_artifacts tables
 4. Enable Email Auth:
    - Go to Authentication > Providers
    - Enable Email provider
@@ -54,6 +56,7 @@ TRUSTED_PROXY_IPS=127.0.0.1,::1
 Important:
 - Keep `.env` files local only.
 - Do not commit real keys.
+- Never place service-role credentials in frontend code.
 
 ### 4. Run the Application
 
@@ -67,38 +70,36 @@ python run.py
 # Or: uvicorn main:app --reload --port 8000
 ```
 
-### 5. Create Your First User
+### 5. Create Your First Project and Membership
 
 1. Navigate to http://localhost:5173/auth
 2. Click "Sign Up" and create an account
-3. The user will be created with role 'reporter' by default
-4. To change a user's role to 'admin' or 'developer', update it in Supabase:
-   ```sql
-   UPDATE public.users SET role = 'admin' WHERE email = 'your-email@example.com';
-   ```
+3. Create a project from the dashboard
+4. Manage member roles inside the project (owner, admin, developer, reporter)
+
+Note: Global users.role has been removed in favor of project-scoped memberships.
 
 ## Testing
 
-### Test Authentication
-- Sign up with a new account
-- Log in
-- Access protected routes
-- Update profile
+### Frontend
 
-### Test Artifacts
-- Create an artifact (requires reporter/developer/admin role)
-- View artifact list
-- Edit artifact (admin or creator)
-- Delete artifact (admin only)
+```bash
+cd frontend
+npm run lint
+npm run test
+npm run build
+```
 
-### Test Bugs
-- Create a bug with associated artifacts
-- View bug list with filters
-- Update bug status (developer/admin)
+### Backend
 
-### Test RBAC
-- Try accessing admin-only endpoints with different roles
-- Verify UI elements are hidden/shown based on role
+```bash
+cd ..
+pytest backend/tests -q
+```
+
+### CI Validation
+
+The same checks run in GitHub Actions via [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Troubleshooting
 
@@ -108,7 +109,7 @@ If you see import errors, make sure you're running from the `backend/` directory
 ### Supabase Connection Issues
 - Verify your environment variables are correct
 - Check that RLS policies are set up correctly
-- Ensure the `get_user_role` function exists
+- Verify project membership records exist for your account
 
 ### Suspected Key Leak
 
@@ -121,7 +122,7 @@ If you think keys were exposed:
 
 
 ### Realtime Not Working
-- Ensure Realtime is enabled for the `bugs` table in Supabase
+- Ensure Realtime is enabled for bugs and bug_artifacts
 - Check browser console for connection errors
 - Verify your Supabase project has Realtime enabled
 

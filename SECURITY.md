@@ -1,74 +1,74 @@
 # Security Implementation Guide
 
-This document outlines the security measures implemented in the Bug Tracking System according to the Security & Data Protection Requirements (v1.1).
+This document outlines security controls and operational guidance for this project.
 
 ## Implemented Security Features
 
 ### 1. Input Validation & Data Sanitization
 
-- **Pydantic Schemas**: All API endpoints use strict Pydantic models with field validators
-- **Input Sanitization**: All text inputs are sanitized using `utils/security.py`:
+- **Pydantic schemas**: backend endpoints validate request models before business logic.
+- **Input sanitization**: user-facing text is sanitized using backend security utilities:
   - HTML entity escaping to prevent XSS
   - Maximum length constraints
   - Enum value validation
   - URL/path sanitization
-- **Validation Location**: Validation occurs in Pydantic models before any database interaction
+- **Validation location**: validation is enforced before database access.
 
 ### 2. SQL Injection Prevention
 
-- **Supabase Client**: All database access uses Supabase's parameterized query builder
-- **No Raw SQL**: No direct SQL string interpolation anywhere in the codebase
-- **RLS Policies**: Row Level Security policies enforce data access at the database level
+- Supabase client/database APIs are used instead of string-built SQL in request paths.
+- No user input is interpolated into ad hoc SQL in API handlers.
+- Row-level security policies enforce access controls in the database layer.
 
 ### 3. API Key & Secret Management
 
-- **Environment Variables**: All secrets stored in `.env` files (not committed to git)
-- **Frontend Safety**: Only public Supabase anon key exposed to frontend
-- **Backend Secrets**: Service role key only accessible to backend
-- **Error Handling**: Error messages never expose API keys or secrets
+- Secrets are read from local environment files and runtime environment variables.
+- Frontend uses only public client configuration values.
+- Backend-only credentials must never be shipped to frontend bundles.
+- Error responses should avoid leaking internal configuration details.
 
 ### 4. Secure API Design
 
-- **Rate Limiting**: Implemented via `middleware/rate_limit.py`:
+- **Rate limiting** is enforced in [backend/middleware/rate_limit.py](backend/middleware/rate_limit.py):
   - Auth endpoints: 5 requests/minute
   - Bug/Artifact endpoints: 20 requests/minute
   - Default: 30 requests/minute
-- **Error Handling**: Generic error messages returned to clients; detailed errors logged server-side
-- **CORS**: Restricted to configured origins only
+- Generic client-facing errors are returned while detailed traces are logged server-side.
+- CORS uses configured allow-lists.
 
 ### 5. Authentication & Authorization
 
-- **JWT Validation**: All protected endpoints validate Supabase JWT tokens
-- **Role-Based Access**: Server-side RBAC enforced via `role_required` dependency
-- **No Frontend-Only Checks**: All authorization verified on backend
+- Protected endpoints validate auth tokens.
+- Authorization is backend-enforced.
+- Project access is based on project membership roles (owner/admin/developer/reporter).
+- Frontend checks are for UX only; backend remains authoritative.
 
 ### 6. Audit Logging
 
-- **Comprehensive Logging**: All critical actions logged via `utils/audit_log.py`:
+- Critical actions are logged using [backend/utils/audit_log.py](backend/utils/audit_log.py):
   - Bug creation/updates/status changes
   - Artifact creation/updates
   - Authentication events
-- **Log Format**: Includes user ID, timestamp, resource type, action, and IP address
-- **Log File**: Audit logs written to `audit.log`
+- Logs include actor/resource/action context and timestamp.
 
 ### 7. Cross-Site Protections
 
-- **XSS Prevention**: All user input HTML-escaped before storage/display
-- **CSRF Protection**: Stateless JWT-based authentication reduces CSRF risk
-- **Content Security**: No raw HTML rendering of user input
+- XSS risk is reduced through sanitization and escaping patterns.
+- JWT-based auth reduces cookie-based CSRF exposure patterns.
+- User content is not rendered as trusted raw HTML.
 
 ### 8. Error Handling
 
-- **Generic Messages**: Clients receive generic error messages
-- **Internal Logging**: Detailed errors logged server-side only
-- **Exception Handlers**: Global exception handlers prevent information leakage
+- Generic client error payloads are preferred.
+- Internal details are logged server-side.
+- Global exception handlers are used to reduce information leakage.
 
 ## Security Testing
 
-Run security tests with:
+Run backend security tests with:
+
 ```bash
-cd backend
-pytest tests/test_security.py -v
+pytest backend/tests/test_security.py -v
 ```
 
 Tests cover:
@@ -84,15 +84,17 @@ Tests cover:
 
 ### Environment Variables
 
-Required environment variables (never commit these):
-- `SUPABASE_URL`: Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY`: Service role key (backend only)
-- `ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins
-- `ENVIRONMENT`: Set to "production" to disable API docs
+Important runtime values (never commit production values):
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY
+- ALLOWED_ORIGINS
+- TRUSTED_PROXY_IPS
+- ENVIRONMENT (set production to disable docs endpoints)
 
 ### Rate Limiting Configuration
 
-Modify `middleware/rate_limit.py` to adjust rate limits:
+Adjust rules in [backend/middleware/rate_limit.py](backend/middleware/rate_limit.py):
+
 ```python
 RATE_LIMITS = {
     "/api/auth": {"requests": 5, "window": 60},
@@ -105,7 +107,7 @@ RATE_LIMITS = {
 
 ### Audit Logs
 
-Audit logs are written to `backend/audit.log`. Monitor for:
+Monitor audit trails for:
 - Failed authentication attempts
 - Unusual access patterns
 - Privilege escalation attempts
@@ -113,7 +115,8 @@ Audit logs are written to `backend/audit.log`. Monitor for:
 
 ### Log Rotation
 
-In production, implement log rotation to prevent disk space issues:
+Use log rotation in production to avoid unbounded disk growth:
+
 ```bash
 # Example logrotate configuration
 /var/log/bugtracker/audit.log {
@@ -124,6 +127,12 @@ In production, implement log rotation to prevent disk space issues:
     notifempty
 }
 ```
+
+## CI and Supply Chain
+
+- GitHub Actions workflow in [.github/workflows/ci.yml](.github/workflows/ci.yml) runs frontend lint/test/build and backend tests.
+- Keep dependencies up to date and review advisories regularly.
+- Prefer pull requests with review for security-sensitive changes.
 
 ## Security Checklist
 

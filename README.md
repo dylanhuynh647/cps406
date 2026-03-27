@@ -1,172 +1,101 @@
 # Bug Tracking System
 
-A comprehensive bug tracking system built with React, FastAPI, and Supabase.
+Bug tracking platform with a React frontend and FastAPI backend, backed by Supabase/PostgreSQL. The project includes project-scoped permissions, invitation workflows, artifact linkage, and phase-aware bug management.
 
-## Features
+## Current Feature Set
 
-- **Authentication & Authorization**: Complete auth flow with Supabase Auth, role-based access control (RBAC)
-- **Artifact Management**: Create, view, edit, and delete development artifacts
-- **Bug Management**: Full CRUD operations for bugs with artifact relationships
-- **Real-time Updates**: Live synchronization of bug list using Supabase Realtime
-- **Advanced Filtering**: Filter bugs by status, type, reporter, artifact type, and date range
+- Authentication with Supabase Auth
+- Project-scoped RBAC through project membership roles
+- Bug lifecycle support with status, severity, assignment invitations, and phase context
+- Artifact management with project-scoped visibility
+- Dashboard tooling for project/member management and phase actions
+- Profile preferences (including persisted dark mode)
+- Frontend realtime updates for bugs and bug-artifact links
 
-## Tech Stack
+## Stack
 
 ### Frontend
 - React 18 + Vite
 - TypeScript
-- Tailwind CSS
 - React Router
-- React Query (TanStack Query)
+- TanStack Query
 - React Hook Form + Zod
-- Supabase JS Client
+- Tailwind CSS
+- Vitest + Testing Library
 
 ### Backend
 - FastAPI
-- Python 3.11+
-- Supabase (PostgreSQL + Auth + Realtime)
+- Python 3.11
+- Pydantic v2
+- Supabase Python client
+- Pytest
 
-## Setup Instructions
+### Database
+- PostgreSQL (Supabase)
+- SQL migrations in [database/migrations](database/migrations)
 
-### Prerequisites
-- Node.js 18+
-- Python 3.11+
-- Supabase account
+## Repository Layout
 
-### 1. Clone and Install Dependencies
-
-```bash
-# Install frontend dependencies
-npm install
-
-# Install backend dependencies
-cd backend
-pip install -r requirements.txt
-```
-
-### 2. Supabase Setup
-
-1. Create a new Supabase project
-2. Run the SQL migration file: `database/migrations/001_initial_schema.sql`
-3. Enable Realtime for the `bugs` table in Supabase dashboard
-4. Enable Email Authentication in Supabase Auth settings
-
-### 3. Environment Variables
-
-Create local environment files from the templates:
-
-```bash
-# From repository root
-copy .env.example .env
-copy backend\.env.example backend\.env
-```
-
-Then edit local values.
-
-Root `.env`:
-
-```env
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_API_URL=http://localhost:8000
-```
-
-`backend/.env`:
-
-```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
-TRUSTED_PROXY_IPS=127.0.0.1,::1
-```
-
-Never commit real keys in `.env` files. The repository ignores these files by default.
-
-### 4. Run the Application
-
-```bash
-# Terminal 1: Start frontend dev server
-npm run dev
-
-# Terminal 2: Start backend server
-cd backend
-python main.py
-# Or with uvicorn:
-uvicorn main:app --reload --port 8000
-```
-
-The application will be available at:
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-
-## Database Schema
-
-### Tables
-- `users`: Extended user profiles with roles
-- `artifacts`: Development artifacts (documents, files, etc.)
-- `bugs`: Bug reports
-- `bug_artifacts`: Many-to-many relationship between bugs and artifacts
-
-### Roles
-- `reporter`: Can create bugs and artifacts
-- `developer`: Can create and update bugs/artifacts
-- `admin`: Full access to all resources
-
-## API Endpoints
-
-### Authentication
-- `GET /api/auth/me` - Get current user info
-
-### Users
-- `GET /api/user/me` - Get current user profile
-- `PATCH /api/user/me` - Update current user profile
-- `GET /api/users` - List all users (admin only)
-
-### Artifacts
-- `GET /api/artifacts` - List all artifacts
-- `GET /api/artifacts/{id}` - Get artifact by ID
-- `POST /api/artifacts` - Create artifact
-- `PATCH /api/artifacts/{id}` - Update artifact
-- `DELETE /api/artifacts/{id}` - Delete artifact (admin only)
-
-### Bugs
-- `GET /api/bugs` - List bugs with filtering
-- `GET /api/bugs/{id}` - Get bug by ID
-- `POST /api/bugs` - Create bug
-- `PATCH /api/bugs/{id}` - Update bug
-- `DELETE /api/bugs/{id}` - Delete bug (admin only)
-
-## Development
-
-### Project Structure
-
-```
+```text
 cps406/
-├── src/                    # Frontend source
-│   ├── components/        # React components
-│   ├── contexts/          # React contexts (Auth)
-│   ├── hooks/             # Custom hooks
-│   ├── lib/              # Utilities (API, Supabase)
-│   └── pages/            # Page components
-├── backend/              # FastAPI backend
-│   ├── api/              # API routes
-│   ├── crud/             # Database operations
-│   ├── schemas/          # Pydantic models
-│   └── main.py           # FastAPI app
-├── database/             # Database migrations
-└── README.md
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── contexts/
+│   │   ├── lib/
+│   │   └── pages/
+│   └── package.json
+├── backend/
+│   ├── api/
+│   ├── crud/
+│   ├── schemas/
+│   ├── middleware/
+│   └── tests/
+├── database/
+│   └── migrations/
+├── SETUP.md
+├── SECURITY.md
+└── docker-compose.yml
 ```
 
-## License
+## Quick Start
 
-MIT
+Use the detailed guide in [SETUP.md](SETUP.md). High-level flow:
 
-## Security Notes
+1. Install dependencies (frontend npm + backend pip).
+2. Configure local environment files from .env.example templates.
+3. Bootstrap database schema using [database/migrations/ALL_MIGRATIONS.sql](database/migrations/ALL_MIGRATIONS.sql).
+4. Run frontend and backend services.
 
-- Treat `SUPABASE_SERVICE_ROLE_KEY` as highly sensitive. If exposed, rotate immediately in Supabase.
-- `VITE_SUPABASE_ANON_KEY` is public by design, but should still be managed through environment files, not hardcoded in source.
-- If a key leak is suspected:
-	1. Rotate exposed keys in Supabase.
-	2. Replace local `.env` values.
-	3. Confirm no secrets appear in tracked files with `git grep`.
-	4. If secrets were ever committed, rewrite git history before publishing.
+## Scripts
+
+### Frontend (run in frontend)
+- npm run dev
+- npm run lint
+- npm run test
+- npm run build
+
+### Backend (run in repository root)
+- pytest backend/tests -q
+
+## Testing
+
+Frontend tests include component and page coverage for loading UI, theme helpers, sanitization, auth/user flow, navbar, bugs, inbox, and profile behavior.
+
+Backend tests cover schema validation, sanitization guards, and security/rate-limit helpers.
+
+## CI
+
+GitHub Actions workflow: [.github/workflows/ci.yml](.github/workflows/ci.yml)
+
+- Frontend job: install, lint, test, build
+- Backend job: install Python dependencies and run backend tests
+
+## Security and Secrets
+
+- Do not commit any production keys, tokens, or service credentials.
+- Keep environment values in local .env files only.
+- Treat backend service-role credentials as sensitive.
+- If key exposure is suspected, rotate immediately and update environment files.
+
+See [SECURITY.md](SECURITY.md) for operational guidance.

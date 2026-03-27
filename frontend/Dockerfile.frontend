@@ -3,16 +3,17 @@ FROM node:20-alpine AS frontend
 # Set work directory
 WORKDIR /app
 
-# Copy frontend code
+# Install dependencies
 COPY package.json package-lock.json* ./
+RUN npm ci --include=dev
+
+# Copy frontend code
 COPY src/ ./src/
+COPY public/ ./public/
 COPY index.html ./
 COPY tsconfig.json tsconfig.node.json ./
 COPY tailwind.config.js postcss.config.js ./
 COPY vite.config.ts ./
-
-# Install dependencies
-RUN npm ci
 
 # Build frontend
 RUN npm run build
@@ -21,4 +22,4 @@ RUN npm run build
 EXPOSE 5173
 
 # Start frontend
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
