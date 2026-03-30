@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Profile from './Profile'
 import { useAuth } from '../contexts/AuthContext'
+import { api } from '../lib/api'
 
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: vi.fn(),
@@ -113,5 +114,71 @@ describe('Profile page', () => {
     })
 
     expect(await screen.findByText('Auth Page')).toBeInTheDocument()
+  })
+
+  it('updates full name and avatar via profile update API', async () => {
+    const refreshProfile = vi.fn().mockResolvedValue(undefined)
+
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 'user-1' },
+      profile: {
+        id: 'user-1',
+        email: 'user@example.com',
+        full_name: 'Old Name',
+        avatar_url: null,
+        dark_mode: false,
+      },
+      loading: false,
+      refreshProfile,
+      setDarkModePreference: vi.fn().mockResolvedValue(undefined),
+      signOut: vi.fn().mockResolvedValue(undefined),
+    } as any)
+
+    const originalFileReader = globalThis.FileReader
+    class MockFileReader {
+      public result: string | null = 'data:image/png;base64,AAAA'
+      public onload: null | (() => void) = null
+      public onerror: null | (() => void) = null
+
+      readAsDataURL() {
+        if (this.onload) {
+          this.onload()
+        }
+      }
+    }
+    ;(globalThis as any).FileReader = MockFileReader
+
+    try {
+      render(
+        <QueryClientProvider client={createClient()}>
+          <MemoryRouter>
+            <Profile />
+          </MemoryRouter>
+        </QueryClientProvider>
+      )
+
+      expect(await screen.findByText('Profile Settings')).toBeInTheDocument()
+
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+      const avatarFile = new File(['avatar'], 'avatar.png', { type: 'image/png' })
+      fireEvent.change(fileInput, { target: { files: [avatarFile] } })
+
+      const nameInput = screen.getByPlaceholderText('Enter your full name')
+      fireEvent.change(nameInput, { target: { value: 'Updated Name' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Update Profile' }))
+
+      await waitFor(() => {
+        expect(api.patch).toHaveBeenCalledWith('/user/me', {
+          full_name: 'Updated Name',
+          avatar_url: 'data:image/png;base64,AAAA',
+        })
+      })
+
+      await waitFor(() => {
+        expect(refreshProfile).toHaveBeenCalledTimes(1)
+      })
+    } finally {
+      ;(globalThis as any).FileReader = originalFileReader
+    }
   })
 })

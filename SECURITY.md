@@ -71,6 +71,31 @@ Run backend security tests with:
 pytest backend/tests/test_security.py -v
 ```
 
+Run frontend tests from the frontend workspace:
+
+```bash
+cd frontend
+npm run test -- --run
+```
+
+Run a single frontend test file (example):
+
+```bash
+npm run test -- --run src/pages/Dashboard.test.tsx
+```
+
+Run multiple specific frontend test files (example):
+
+```bash
+npm run test -- --run src/pages/Auth.test.tsx src/pages/Profile.test.tsx src/pages/Bugs.test.tsx
+```
+
+Run frontend tests in watch mode:
+
+```bash
+npm run test
+```
+
 Tests cover:
 - SQL injection prevention
 - XSS prevention
@@ -79,6 +104,57 @@ Tests cover:
 - Unauthorized access
 - Role-based access control
 - Error message sanitization
+
+## Feature Test Coverage Checklist
+
+Use this checklist to verify core product behavior and security controls.
+
+### Account Feature Tests
+
+- [ ] Create an account
+- [ ] Log in
+- [ ] Log out
+- [ ] Update profile picture
+- [ ] Update light mode/dark mode preference
+- [ ] Change username
+- [ ] Change password
+
+### Dashboard Feature Tests
+
+- [ ] Add member to project
+- [ ] Remove member from project
+- [ ] Update member role
+- [ ] Create project
+- [ ] Delete project
+- [ ] Update project phases
+- [ ] Roll project phase forward
+- [ ] Roll project phase backward
+
+### Artifact Feature Tests
+
+- [ ] Create artifact and persist to database
+- [ ] Delete artifact and remove from database
+- [ ] Display updated artifact data in frontend after changes
+- [ ] Filter artifacts by supported criteria
+- [ ] Enforce artifact data security controls and access rules
+
+### Bug Feature Tests
+
+- [ ] Report/create bug and persist to database
+- [ ] Delete bug
+- [ ] Display updated bug data in frontend after changes
+- [ ] Filter bugs
+- [ ] Search bugs
+- [ ] Detect duplicate bugs
+- [ ] Enforce role-based bug access
+
+### Security Test Cases
+
+- [ ] XSS handling and output sanitization
+- [ ] SQL injection resistance
+- [ ] Rate limiting behavior and guardrails
+- [ ] Unauthorized access rejection
+- [ ] Improper input handling and validation
 
 ## Configuration
 
