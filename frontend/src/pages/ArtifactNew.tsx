@@ -159,7 +159,7 @@ export default function ArtifactNew() {
 
           <div>
             <label htmlFor="reference" className="block text-sm font-medium text-gray-700">
-              Reference (URL or path)
+              Reference (URL or path) *
             </label>
             <input
               {...register('reference')}

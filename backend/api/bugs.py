@@ -276,7 +276,7 @@ async def list_bugs(
             detail="Failed to list bugs"
         )
 
-@router.get("/bugs/{bug_id}", response_model=BugResponse)
+@router.get("/bugs/{bug_id:uuid}", response_model=BugResponse)
 async def get_bug(
     bug_id: UUID,
     project_id: UUID,
@@ -306,7 +306,7 @@ async def get_bug(
             detail="Failed to fetch bug"
         )
 
-@router.patch("/bugs/{bug_id}", response_model=BugResponse)
+@router.patch("/bugs/{bug_id:uuid}", response_model=BugResponse)
 async def update_bug(
     request: Request,
     bug_id: UUID,
@@ -407,7 +407,7 @@ async def update_bug(
         )
 
 
-@router.patch("/bugs/{bug_id}/severity", response_model=BugResponse)
+@router.patch("/bugs/{bug_id:uuid}/severity", response_model=BugResponse)
 async def update_bug_severity(
     request: Request,
     bug_id: UUID,
@@ -462,7 +462,7 @@ async def update_bug_severity(
             detail="Failed to update bug severity"
         )
 
-@router.delete("/bugs/{bug_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/bugs/{bug_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_bug(
     bug_id: UUID,
     project_id: UUID,
