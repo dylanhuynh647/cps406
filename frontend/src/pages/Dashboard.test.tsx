@@ -215,7 +215,8 @@ describe('Dashboard page', () => {
     expect(await screen.findByText('Dev One')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Manage Dev One/i }))
-    fireEvent.change(screen.getAllByRole('combobox').at(-1) as HTMLSelectElement, { target: { value: 'admin' } })
+    const roleSelects = screen.getAllByRole('combobox')
+    fireEvent.change(roleSelects[roleSelects.length - 1] as HTMLSelectElement, { target: { value: 'admin' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save Role' }))
 
     await waitFor(() => {
@@ -224,7 +225,8 @@ describe('Dashboard page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Manage Dev One/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Remove Member' }))
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove Member' }).at(-1) as HTMLButtonElement)
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove Member' })
+    fireEvent.click(removeButtons[removeButtons.length - 1] as HTMLButtonElement)
 
     await waitFor(() => {
       expect(api.delete).toHaveBeenCalledWith('/projects/project-1/members/member-1')
@@ -256,7 +258,8 @@ describe('Dashboard page', () => {
       expect(api.post).toHaveBeenCalledWith('/projects/project-1/phases/1/rollback')
     })
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Phase #3/i }).at(-1) as HTMLButtonElement)
+    const phaseThreeButtons = screen.getAllByRole('button', { name: /Phase #3/i })
+    fireEvent.click(phaseThreeButtons[phaseThreeButtons.length - 1] as HTMLButtonElement)
     fireEvent.click(screen.getByRole('button', { name: 'Roll forward' }))
 
     await waitFor(() => {
@@ -269,7 +272,8 @@ describe('Dashboard page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit project' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete Project' }))
-    fireEvent.click(screen.getAllByRole('button', { name: 'Delete Project' }).at(-1) as HTMLButtonElement)
+    const deleteProjectButtons = screen.getAllByRole('button', { name: 'Delete Project' })
+    fireEvent.click(deleteProjectButtons[deleteProjectButtons.length - 1] as HTMLButtonElement)
 
     await waitFor(() => {
       expect(api.delete).toHaveBeenCalledWith('/projects/project-1')
