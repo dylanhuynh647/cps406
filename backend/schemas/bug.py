@@ -27,6 +27,7 @@ class BugCreate(BaseModel):
     status: Optional[str] = Field(default="open")
     severity: Optional[str] = Field(default="medium")
     assigned_to: Optional[UUID] = None
+    duplicate_of: Optional[UUID] = None
     artifact_ids: Optional[List[UUID]] = Field(default_factory=list, max_length=100)
     
     @field_validator('title')
@@ -161,6 +162,7 @@ class BugResponse(BaseModel):
     reporter_name: Optional[str] = None
     reporter_avatar_url: Optional[str] = None
     assigned_to: Optional[UUID]
+    duplicate_of: Optional[UUID] = None
     phase_number: int = 1
     created_at: datetime
     updated_at: datetime
@@ -180,3 +182,36 @@ class BugSeverityUpdate(BaseModel):
     def validate_severity(cls, v: str) -> str:
         """Validate severity enum"""
         return validate_enum_value(v, BUG_SEVERITIES, "severity")
+
+
+class BugDuplicateCheckRequest(BaseModel):
+    project_id: UUID
+    title: str = Field(..., min_length=1, max_length=MAX_TITLE_LENGTH)
+    description: str = Field(..., min_length=1, max_length=MAX_DESCRIPTION_LENGTH)
+    limit: int = Field(default=5, ge=1, le=10)
+
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Title cannot be empty")
+        return sanitize_text(v.strip(), MAX_TITLE_LENGTH)
+
+    @field_validator('description')
+    @classmethod
+    def validate_description(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Description cannot be empty")
+        return sanitize_text(v.strip(), MAX_DESCRIPTION_LENGTH)
+
+
+class BugDuplicateCandidate(BaseModel):
+    id: UUID
+    title: str
+    status: str
+    severity: str
+    similarity_score: float
+
+
+class BugDuplicateCheckResponse(BaseModel):
+    candidates: List[BugDuplicateCandidate]

@@ -74,7 +74,14 @@ RATE_LIMIT_RULES = [
         "id": "bugs-create",
         "pattern": re.compile(r"^/api/bugs$"),
         "methods": {"POST"},
-        "requests": 10,
+        "requests": 15,
+        "window": 60,
+    },
+    {
+        "id": "bugs-duplicate-check",
+        "pattern": re.compile(r"^/api/bugs/duplicate-candidates$"),
+        "methods": {"POST"},
+        "requests": 30,
         "window": 60,
     },
     {

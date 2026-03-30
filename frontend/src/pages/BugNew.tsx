@@ -3,9 +3,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import toast from 'react-hot-toast'
+import { LoadingPulse } from '../components/LoadingPulse'
 
 const bugSchema = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -18,6 +20,15 @@ const bugSchema = z.object({
 })
 
 type BugFormData = z.infer<typeof bugSchema>
+type CreateBugPayload = BugFormData & { duplicate_of?: string }
+
+type DuplicateCandidate = {
+  id: string
+  title: string
+  status: string
+  severity: string
+  similarity_score: number
+}
 
 const bugTypes = ['logic', 'syntax', 'performance', 'documentation', 'ui/ux', 'security', 'data', 'other']
 const bugStatuses = ['open', 'in_progress', 'resolved']
@@ -41,6 +52,11 @@ export default function BugNew() {
   const navigate = useNavigate()
   const { currentProject, currentProjectId } = useAuth()
   const queryClient = useQueryClient()
+  const [pendingSubmission, setPendingSubmission] = useState<BugFormData | null>(null)
+  const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([])
+  const [showDuplicatePrompt, setShowDuplicatePrompt] = useState(false)
+  const [comparisonCandidateId, setComparisonCandidateId] = useState<string | null>(null)
+  const actionLockRef = useRef(false)
 
   const {
     register,
@@ -74,32 +90,81 @@ export default function BugNew() {
     enabled: !!currentProjectId,
   })
 
+  const { data: comparisonBug, isLoading: isComparisonLoading } = useQuery({
+    queryKey: ['bug', 'comparison', comparisonCandidateId, currentProjectId],
+    queryFn: async () => {
+      const response = await api.get(`/bugs/${comparisonCandidateId}`, { params: { project_id: currentProjectId } })
+      return response.data
+    },
+    enabled: !!comparisonCandidateId && !!currentProjectId,
+  })
+
   const createMutation = useMutation({
-    mutationFn: async (data: BugFormData) => {
+    mutationFn: async (data: CreateBugPayload) => {
       return api.post('/bugs', {
         ...data,
         project_id: currentProjectId,
         assigned_to: data.assigned_to || null,
+        duplicate_of: data.duplicate_of || null,
         artifact_ids: data.artifact_ids?.map(id => id) || [],
       })
     },
     onSuccess: (response, variables) => {
+      actionLockRef.current = false
+      queryClient.setQueryData(['bug', response.data.id, currentProjectId], response.data)
       queryClient.invalidateQueries({ queryKey: ['bugs', currentProjectId] })
+      setPendingSubmission(null)
+      setDuplicateCandidates([])
+      setShowDuplicatePrompt(false)
+      setComparisonCandidateId(null)
       if (variables.assigned_to) {
         toast.success('Bug created and assignment invite sent!')
+      } else if (variables.duplicate_of) {
+        toast.success('Bug created and linked as a duplicate!')
       } else {
         toast.success('Bug created successfully!')
       }
       navigate(`/bugs/${response.data.id}`)
     },
     onError: (error: any) => {
+      actionLockRef.current = false
       toast.error(error.response?.data?.detail || 'Failed to create bug')
+    },
+  })
+
+  const duplicateCheckMutation = useMutation({
+    mutationFn: async (data: BugFormData) => {
+      return api.post('/bugs/duplicate-candidates', {
+        project_id: currentProjectId,
+        title: data.title,
+        description: data.description,
+        limit: 5,
+      })
+    },
+    onSuccess: (response, variables) => {
+      actionLockRef.current = false
+      const candidates: DuplicateCandidate[] = response.data?.candidates ?? []
+      if (candidates.length > 0) {
+        setPendingSubmission(variables)
+        setDuplicateCandidates(candidates)
+        setShowDuplicatePrompt(true)
+        return
+      }
+      actionLockRef.current = true
+      createMutation.mutate(variables)
+    },
+    onError: () => {
+      actionLockRef.current = false
+      toast.error('Could not check for duplicate bugs. Please try again.')
     },
   })
 
   const selectedArtifacts = watch('artifact_ids') || []
 
   const onSubmit = (data: BugFormData) => {
+    if (actionLockRef.current || duplicateCheckMutation.isPending || createMutation.isPending) {
+      return
+    }
     if (!currentProjectId) {
       toast.error('Select a project first')
       return
@@ -108,8 +173,43 @@ export default function BugNew() {
       toast.error('Reporter bugs must include an assignee')
       return
     }
-    createMutation.mutate(data)
+    setShowDuplicatePrompt(false)
+    setDuplicateCandidates([])
+    setPendingSubmission(null)
+    setComparisonCandidateId(null)
+    actionLockRef.current = true
+    duplicateCheckMutation.mutate(data)
   }
+
+  const createAsDuplicate = (duplicateOfBugId: string) => {
+    if (actionLockRef.current || createMutation.isPending || duplicateCheckMutation.isPending) {
+      return
+    }
+    if (!pendingSubmission) {
+      return
+    }
+    actionLockRef.current = true
+    createMutation.mutate({
+      ...pendingSubmission,
+      duplicate_of: duplicateOfBugId,
+    })
+  }
+
+  const createWithoutDuplicate = () => {
+    if (actionLockRef.current || createMutation.isPending || duplicateCheckMutation.isPending) {
+      return
+    }
+    if (!pendingSubmission) {
+      return
+    }
+    actionLockRef.current = true
+    createMutation.mutate(pendingSubmission)
+  }
+
+  const draftTitle = pendingSubmission?.title || watch('title') || ''
+  const draftDescription = pendingSubmission?.description || watch('description') || ''
+  const draftStatus = pendingSubmission?.status || watch('status') || 'open'
+  const draftSeverity = pendingSubmission?.severity || watch('severity') || 'medium'
 
   if (!currentProjectId) {
     return (
@@ -121,8 +221,106 @@ export default function BugNew() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {createMutation.isPending && (
+        <LoadingPulse fullscreen label="Creating bug" />
+      )}
       <div className="bg-white shadow rounded-lg p-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Report New Bug</h1>
+
+        {showDuplicatePrompt && (
+          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4">
+            <h2 className="text-sm font-semibold text-amber-900">Potential duplicate bugs found</h2>
+            <p className="mt-1 text-sm text-amber-800">
+              Review these likely matches. Open one to compare it against your draft, or create this bug anyway.
+            </p>
+            <div className="mt-3 space-y-2">
+              {duplicateCandidates.map((candidate) => (
+                <div key={candidate.id} className="rounded border border-amber-200 bg-white p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{candidate.title}</p>
+                      <p className="text-xs text-gray-600">
+                        Similarity: {Math.round(candidate.similarity_score * 100)}% | Status: {formatStatusLabel(candidate.status)} | Severity: {formatSeverityLabel(candidate.severity)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setComparisonCandidateId(candidate.id)}
+                      disabled={createMutation.isPending || duplicateCheckMutation.isPending}
+                      className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                    >
+                      View & Compare
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {comparisonCandidateId && (
+              <div className="mt-4 rounded border border-amber-300 bg-white p-4">
+                <h3 className="text-sm font-semibold text-gray-900">Bug Comparison</h3>
+                {isComparisonLoading ? (
+                  <p className="mt-2 text-sm text-gray-600">Loading existing bug details...</p>
+                ) : (
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">New Draft</p>
+                      <p className="mt-1 text-sm font-medium text-gray-900">{draftTitle || 'Untitled draft'}</p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        Status: {formatStatusLabel(draftStatus)} | Severity: {formatSeverityLabel(draftSeverity)}
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">{draftDescription || 'No description provided yet.'}</p>
+                    </div>
+                    <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Existing Bug</p>
+                      <p className="mt-1 text-sm font-medium text-gray-900">{comparisonBug?.title || 'Unknown bug'}</p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        Status: {comparisonBug?.status ? formatStatusLabel(comparisonBug.status) : 'Unknown'} | Severity: {comparisonBug?.severity ? formatSeverityLabel(comparisonBug.severity) : 'Unknown'}
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">{comparisonBug?.description || 'No description available.'}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => createAsDuplicate(comparisonCandidateId)}
+                    disabled={createMutation.isPending || duplicateCheckMutation.isPending || isComparisonLoading}
+                    className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                  >
+                    {createMutation.isPending ? 'Creating...' : 'Create As Duplicate'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.open(`/bugs/${comparisonCandidateId}`, '_blank', 'noopener,noreferrer')}
+                    className="bg-white hover:bg-gray-100 text-gray-900 border border-gray-300 px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    Open Existing Bug
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={createWithoutDuplicate}
+                disabled={createMutation.isPending || duplicateCheckMutation.isPending}
+                className="bg-blue-800 hover:bg-blue-900 text-white px-3 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+              >
+                {createMutation.isPending ? 'Creating...' : 'Create as New'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDuplicatePrompt(false)}
+                disabled={createMutation.isPending || duplicateCheckMutation.isPending}
+                className="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-3 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+              >
+                Keep Editing
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div>
@@ -256,10 +454,14 @@ export default function BugNew() {
             </button>
             <button
               type="submit"
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || duplicateCheckMutation.isPending}
               className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
             >
-              {createMutation.isPending ? 'Creating...' : 'Create Bug'}
+              {createMutation.isPending
+                ? 'Creating...'
+                : duplicateCheckMutation.isPending
+                  ? 'Checking duplicates...'
+                  : 'Create Bug'}
             </button>
           </div>
         </form>

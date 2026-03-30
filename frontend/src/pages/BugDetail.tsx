@@ -32,6 +32,14 @@ interface UserProfileLite {
   avatar_url?: string | null
 }
 
+interface BugSummary {
+  id: string
+  title: string
+  status: string
+  severity: string
+  duplicate_of?: string | null
+}
+
 const formatBugTypeLabel = (value: string) => {
   if (value.toLowerCase() === 'ui/ux') return 'UI/UX'
   return value.charAt(0).toUpperCase() + value.slice(1)
@@ -101,6 +109,21 @@ export default function BugDetail() {
     enabled: !!id && !!currentProjectId,
   })
 
+  const { data: projectBugs } = useQuery<BugSummary[]>({
+    queryKey: ['bugs', 'duplicates', currentProjectId],
+    queryFn: async () => {
+      const response = await api.get('/bugs', {
+        params: {
+          project_id: currentProjectId,
+          include_archived_resolved: true,
+          limit: 100,
+        },
+      })
+      return Array.isArray(response.data) ? response.data : []
+    },
+    enabled: !!currentProjectId,
+  })
+
   const assignedUserName = bug?.assigned_to
     ? users?.find((user: any) => user.id === bug.assigned_to)?.full_name ||
       users?.find((user: any) => user.id === bug.assigned_to)?.email ||
@@ -158,6 +181,13 @@ export default function BugDetail() {
   })
 
   const selectedArtifacts = watch('artifact_ids') || []
+  const parentDuplicateBug = bug?.duplicate_of
+    ? projectBugs?.find((candidate) => candidate.id === bug.duplicate_of)
+    : null
+  const childDuplicateBugs = (projectBugs || []).filter(
+    (candidate) => candidate.duplicate_of === bug?.id && candidate.id !== bug?.id,
+  )
+  const hasDuplicateLinks = !!parentDuplicateBug || childDuplicateBugs.length > 0
 
   const updateMutation = useMutation({
     mutationFn: async (data: BugFormData) => {
@@ -521,6 +551,40 @@ export default function BugDetail() {
               <label className="block text-sm font-medium text-gray-700">Assigned To</label>
               <p className="mt-1 text-sm text-gray-900">{assignedUserName}</p>
             </div>
+            {hasDuplicateLinks && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Linked Bugs</label>
+                <div className="mt-2 space-y-2">
+                  {parentDuplicateBug && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/bugs/${parentDuplicateBug.id}`)}
+                      className="w-full rounded border border-amber-200 bg-amber-50 px-3 py-2 text-left hover:bg-amber-100"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Marked As Duplicate Of</p>
+                      <p className="text-sm font-medium text-gray-900">{parentDuplicateBug.title}</p>
+                      <p className="text-xs text-gray-600">
+                        Status: {formatStatusLabel(parentDuplicateBug.status)} | Severity: {formatSeverityLabel(parentDuplicateBug.severity)}
+                      </p>
+                    </button>
+                  )}
+                  {childDuplicateBugs.map((linkedBug) => (
+                    <button
+                      key={linkedBug.id}
+                      type="button"
+                      onClick={() => navigate(`/bugs/${linkedBug.id}`)}
+                      className="w-full rounded border border-indigo-200 bg-indigo-50 px-3 py-2 text-left hover:bg-indigo-100"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Duplicate Linked To This Bug</p>
+                      <p className="text-sm font-medium text-gray-900">{linkedBug.title}</p>
+                      <p className="text-xs text-gray-600">
+                        Status: {formatStatusLabel(linkedBug.status)} | Severity: {formatSeverityLabel(linkedBug.severity)}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700">Found At</label>
               <p className="mt-1 text-sm text-gray-900">

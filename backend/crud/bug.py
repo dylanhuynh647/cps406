@@ -2,6 +2,8 @@ from supabase import Client
 from uuid import UUID
 from typing import Optional, List
 from datetime import datetime, date
+from difflib import SequenceMatcher
+import re
 from backend.schemas.bug import BugCreate, BugUpdate
 
 
@@ -37,6 +39,76 @@ def _get_user_profile_map(db: Client, user_ids: List[str]) -> dict:
         }
     return profile_map
 
+
+def _tokenize_text(value: Optional[str]) -> set[str]:
+    if not value:
+        return set()
+    normalized = value.lower()
+    return set(re.findall(r"[a-z0-9_]+", normalized))
+
+
+def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+    if not left and not right:
+        return 1.0
+    if not left or not right:
+        return 0.0
+    intersection = len(left.intersection(right))
+    union = len(left.union(right))
+    if union == 0:
+        return 0.0
+    return intersection / union
+
+
+def find_duplicate_candidates(
+    db: Client,
+    project_id: UUID,
+    title: str,
+    description: str,
+    limit: int = 5,
+):
+    """Return likely duplicate bugs for a project ranked by textual similarity."""
+    query_title = (title or "").strip().lower()
+    query_description = (description or "").strip().lower()
+    query_tokens = _tokenize_text(f"{query_title} {query_description}")
+
+    existing_result = (
+        db.table("bugs")
+        .select("id, title, description, status, severity")
+        .eq("project_id", str(project_id))
+        .order("created_at", desc=True)
+        .limit(250)
+        .execute()
+    )
+
+    ranked_candidates = []
+    for item in existing_result.data or []:
+        existing_title = (item.get("title") or "").strip().lower()
+        existing_description = (item.get("description") or "").strip().lower()
+
+        title_score = SequenceMatcher(None, query_title, existing_title).ratio() if (query_title and existing_title) else 0.0
+        description_score = SequenceMatcher(None, query_description, existing_description).ratio() if (query_description and existing_description) else 0.0
+        token_score = _jaccard_similarity(
+            query_tokens,
+            _tokenize_text(f"{existing_title} {existing_description}"),
+        )
+
+        similarity_score = (0.55 * title_score) + (0.30 * token_score) + (0.15 * description_score)
+        if similarity_score < 0.20:
+            continue
+
+        ranked_candidates.append(
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "status": _normalize_status_for_response(item.get("status")) or "open",
+                "severity": item.get("severity") or "medium",
+                "similarity_score": round(similarity_score, 3),
+            }
+        )
+
+    ranked_candidates.sort(key=lambda candidate: candidate["similarity_score"], reverse=True)
+    return ranked_candidates[: max(1, int(limit or 5))]
+
 def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID, phase_number: int = 1):
     """Create a new bug and its artifact relationships"""
     status_value = bug_data.status or "open"
@@ -50,6 +122,7 @@ def create_bug(db: Client, bug_data: BugCreate, reporter_id: UUID, phase_number:
         "severity": bug_data.severity or "medium",
         "reporter_id": str(reporter_id),
         "assigned_to": str(bug_data.assigned_to) if bug_data.assigned_to else None,
+        "duplicate_of": str(bug_data.duplicate_of) if bug_data.duplicate_of else None,
         "phase_number": max(1, int(phase_number or 1)),
     }
 

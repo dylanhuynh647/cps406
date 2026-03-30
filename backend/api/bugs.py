@@ -3,7 +3,14 @@ from uuid import UUID
 from typing import Optional, List
 from datetime import datetime
 from backend.dependencies import get_current_user, ensure_project_role, get_project_role, supabase
-from backend.schemas.bug import BugCreate, BugUpdate, BugResponse, BugSeverityUpdate
+from backend.schemas.bug import (
+    BugCreate,
+    BugUpdate,
+    BugResponse,
+    BugSeverityUpdate,
+    BugDuplicateCheckRequest,
+    BugDuplicateCheckResponse,
+)
 from backend.crud import bug
 from backend.utils.audit_log import log_bug_created, log_bug_updated, log_bug_status_changed, log_bug_fixed, get_client_ip
 from backend.utils.phases import maybe_auto_advance_project_phase
@@ -96,6 +103,42 @@ def _create_assignment_invitation(
     )
     return (result.data or [None])[0]
 
+
+@router.post("/bugs/duplicate-candidates", response_model=BugDuplicateCheckResponse)
+async def get_duplicate_bug_candidates(
+    payload: BugDuplicateCheckRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Suggest likely duplicate bugs for a proposed report."""
+    try:
+        ensure_project_role(
+            supabase,
+            payload.project_id,
+            user["user_id"],
+            ["owner", "admin", "developer", "reporter"],
+        )
+
+        candidates = bug.find_duplicate_candidates(
+            supabase,
+            project_id=payload.project_id,
+            title=payload.title,
+            description=payload.description,
+            limit=payload.limit,
+        )
+        return BugDuplicateCheckResponse(candidates=candidates)
+    except HTTPException:
+        raise
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid input data",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to find duplicate bug candidates",
+        )
+
 @router.post("/bugs", response_model=BugResponse, status_code=status.HTTP_201_CREATED)
 async def create_bug(
     request: Request,
@@ -126,6 +169,13 @@ async def create_bug(
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Bug assignee must be an owner, admin, or developer",
+                )
+        if bug_data.duplicate_of:
+            duplicate_target = bug.get_bug(supabase, bug_data.duplicate_of, bug_data.project_id)
+            if not duplicate_target:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Duplicate target bug not found in this project",
                 )
 
         project_phase_state = maybe_auto_advance_project_phase(supabase, bug_data.project_id)

@@ -59,6 +59,22 @@ def test_bug_create_enforces_title_max_length():
         )
 
 
+def test_bug_create_accepts_duplicate_of_reference():
+    duplicate_target_id = uuid4()
+    bug = BugCreate(
+        project_id=uuid4(),
+        title='Potential duplicate',
+        description='Looks similar to another known issue',
+        bug_type='other',
+        status='open',
+        severity='medium',
+        duplicate_of=duplicate_target_id,
+        artifact_ids=[],
+    )
+
+    assert bug.duplicate_of == duplicate_target_id
+
+
 def test_sanitize_url_rejects_javascript_scheme():
     with pytest.raises(ValueError):
         sanitize_url("javascript:alert('xss')")
@@ -90,6 +106,7 @@ def test_sanitize_text_escapes_sql_like_payload_markup():
         ('/api/projects/11111111-1111-1111-1111-111111111111/phases/4/rollforward', 'POST', 'phase-transition'),
         ('/api/projects/11111111-1111-1111-1111-111111111111/member-invitations', 'POST', 'project-members-add'),
         ('/api/bugs', 'POST', 'bugs-create'),
+        ('/api/bugs/duplicate-candidates', 'POST', 'bugs-duplicate-check'),
         ('/api/bugs/11111111-1111-1111-1111-111111111111', 'DELETE', 'bugs-delete'),
         ('/api/artifact-uploads', 'POST', 'artifacts-create'),
     ],
