@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js 20+ (includes npm)
-- Python 3.10 (recommended for current backend dependency compatibility)
+- Python 3.11 (recommended; 3.10 also supported)
 - A Supabase project
 
 ## Quick Start (Recommended)
@@ -25,15 +25,21 @@ From repository root:
 cd backend
 ```
 
-Create the venv with Python 3.10 (choose your OS):
+Create the venv with Python 3.11 (choose your OS):
 
 Linux/macOS:
 
 ```bash
-python3.10 -m venv .venv
+python3.11 -m venv .venv
 ```
 
 Windows:
+
+```bash
+py -3.11 -m venv .venv
+```
+
+If Python 3.11 is not installed on your machine:
 
 ```bash
 py -3.10 -m venv .venv
