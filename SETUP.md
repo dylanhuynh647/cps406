@@ -32,11 +32,11 @@ Create local environment files from templates:
 
 ```bash
 # Run from repository root
-copy .env.example .env
+copy frontend\.env.example frontend\.env
 copy backend\.env.example backend\.env
 ```
 
-Edit root `.env`:
+Edit `frontend/.env`:
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
@@ -67,7 +67,7 @@ npm run dev
 # Terminal 2: Backend
 cd backend
 python run.py
-# Or: uvicorn main:app --reload --port 8000
+# Or from repository root: uvicorn backend.main:app --reload --port 8000
 ```
 
 ### 5. Create Your First Project and Membership

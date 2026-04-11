@@ -17,7 +17,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.frontend
     env_file:
-      - ./.env
+      - ./frontend/.env
     ports:
       - "5173:5173"
     environment:

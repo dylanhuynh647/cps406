@@ -63,7 +63,7 @@ cps406/
 Use the detailed guide in [SETUP.md](SETUP.md). High-level flow:
 
 1. Install dependencies (frontend npm + backend pip).
-2. Configure local environment files from .env.example templates.
+2. Configure local environment files from templates: `frontend/.env.example` and `backend/.env.example`.
 3. Bootstrap database schema using [database/migrations/ALL_MIGRATIONS.sql](database/migrations/ALL_MIGRATIONS.sql).
 4. Run frontend and backend services.
 

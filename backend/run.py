@@ -7,11 +7,13 @@ Or from root: python -m backend.run
 import sys
 import os
 
-# Add the backend directory to the path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Ensure project root is on sys.path so absolute imports like backend.* resolve.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 if __name__ == "__main__":
     import uvicorn
     from backend.main import app
     
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
